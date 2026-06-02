@@ -1,0 +1,15 @@
+{
+  "name": "voice-solo",
+  "version": "0.1.0",
+  "description": "Local speech recognition in Obsidian — ONNX + WebGPU, no cloud",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "obsidian": "^1.7.0",
+    "typescript": "^5.5.0"
+  }
+}

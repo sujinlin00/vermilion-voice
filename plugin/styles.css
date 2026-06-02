@@ -1,0 +1,119 @@
+/* Voice-Solo Sidebar View */
+
+.voice-solo-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px;
+  gap: 12px;
+}
+
+.voice-solo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.voice-solo-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.voice-solo-status {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.voice-solo-idle { background: var(--background-modifier-border); color: var(--text-muted); }
+.voice-solo-ready { background: #1f3a1f; color: #3fb950; }
+.voice-solo-recording { background: #3a1f1f; color: #f85149; }
+.voice-solo-processing { background: #3a2f1f; color: #d29922; }
+.voice-solo-loading { background: #1f2f3a; color: #58a6ff; }
+.voice-solo-error { background: #3a1f1f; color: #f85149; }
+
+.voice-solo-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.voice-solo-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.voice-solo-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.voice-solo-btn-start {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+.voice-solo-btn-start:hover:not(:disabled) {
+  background: var(--interactive-accent-hover);
+}
+
+.voice-solo-btn-stop {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+}
+
+.voice-solo-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.voice-solo-stat {
+  font-family: var(--font-monospace);
+}
+
+.voice-solo-output {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--background-primary-alt);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 0.85rem;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.voice-solo-placeholder {
+  color: var(--text-faint);
+  text-align: center;
+  padding: 32px 0;
+}
+
+.voice-solo-segment {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: var(--background-primary);
+  border-radius: 4px;
+  border-left: 3px solid var(--interactive-accent);
+  animation: voice-solo-fadein 0.3s;
+}
+
+@keyframes voice-solo-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.voice-solo-seg-time {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  margin-bottom: 2px;
+}
+
+.voice-solo-seg-text {
+  font-size: 0.9rem;
+  color: var(--text-normal);
+}
