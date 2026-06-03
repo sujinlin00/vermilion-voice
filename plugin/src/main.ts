@@ -122,6 +122,9 @@ const DEFAULT_SETTINGS: VoiceSoloSettings = {
   audioDevice: '',
   vadSensitivity: 'medium',
   outputInterval: 3000,
+  silenceThreshold: 2.5,
+  maxLineChars: 90,
+  maxSpeechDuration: 4.0,
   hotWords: {},
 };
 
@@ -726,20 +729,30 @@ export default class VoiceSoloPlugin extends Plugin {
   }
 
   private loadAppConfig() {
-    const fs: any = (window as any).require?.('fs') || require('fs');
-    const path: any = (window as any).require?.('path') || require('path');
+    const fs: any = (globalThis as any).require?.('fs') || require('fs');
+    const path: any = (globalThis as any).require?.('path') || require('path');
     const cfgPath = path.join(this.pluginDir, 'settings.json');
     try {
       if (fs.existsSync(cfgPath)) {
         const raw = fs.readFileSync(cfgPath, 'utf-8');
         this.appConfig = JSON.parse(raw);
         this.vadCfg = this.appConfig?.vad || null;
-        // Re-create TextProcessor with config
-        this.textProc = new TextProcessor(this.appConfig?.text_processor);
         this.addLog(`[config] loaded settings.json`);
       }
     } catch (e: any) {
       this.addLog(`[config] failed to load settings.json: ${e.message}`);
+    }
+
+    // Apply settings.json as base, override with VoiceSoloSettings
+    const tpCfg = this.appConfig?.text_processor || {};
+    const s = this.settings;
+    this.textProc = new TextProcessor({
+      silence_threshold: s.silenceThreshold ?? tpCfg.silence_threshold,
+      max_line_chars: s.maxLineChars ?? tpCfg.max_line_chars,
+      dedup_window: tpCfg.dedup_window,
+    });
+    if (this.vadCfg) {
+      this.vadCfg.max_speech_duration = s.maxSpeechDuration ?? this.vadCfg.max_speech_duration;
     }
   }
 }
@@ -885,6 +898,51 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         d.setValue(String(s.outputInterval));
         d.onChange(async (v) => {
           this.plugin.settings.outputInterval = Number(v);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('段落分隔静音')
+      .setDesc('两个语音片段之间静音超过此值时输出换行')
+      .addDropdown(d => {
+        d.addOption('1.5', '1.5 秒（紧凑）');
+        d.addOption('2.0', '2.0 秒');
+        d.addOption('2.5', '2.5 秒（默认）');
+        d.addOption('3.0', '3.0 秒（宽松）');
+        d.setValue(String(s.silenceThreshold));
+        d.onChange(async (v) => {
+          this.plugin.settings.silenceThreshold = Number(v);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('单行字数上限')
+      .setDesc('单行超过此字数后遇到标点自动换行')
+      .addDropdown(d => {
+        d.addOption('60', '60 字');
+        d.addOption('90', '90 字（默认）');
+        d.addOption('120', '120 字');
+        d.addOption('0', '不限制');
+        d.setValue(String(s.maxLineChars));
+        d.onChange(async (v) => {
+          this.plugin.settings.maxLineChars = Number(v);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('最长语音分段')
+      .setDesc('单段语音超过此值自动切段（需重新开始识别生效）')
+      .addDropdown(d => {
+        d.addOption('3', '3 秒（短段）');
+        d.addOption('4', '4 秒（默认）');
+        d.addOption('6', '6 秒（长段）');
+        d.addOption('8', '8 秒（超长段）');
+        d.setValue(String(s.maxSpeechDuration));
+        d.onChange(async (v) => {
+          this.plugin.settings.maxSpeechDuration = Number(v);
           await this.plugin.saveSettings();
         });
       });

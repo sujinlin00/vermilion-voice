@@ -29,6 +29,9 @@ export interface VoiceSoloSettings {
   // 识别粒度
   vadSensitivity: 'low' | 'medium' | 'high';
   outputInterval: number; // ms: 1000 | 3000 | 5000
+  silenceThreshold: number; // 段落分隔静音(秒)
+  maxLineChars: number;     // 单行字数上限
+  maxSpeechDuration: number; // 最长语音分段(秒)
 
   // Advanced
   hotWords: Record<string, string>;
