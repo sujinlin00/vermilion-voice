@@ -610,7 +610,9 @@ export default class VoiceSoloPlugin extends Plugin {
     if (!this.currentNotePath) return;
     const file = this.app.vault.getAbstractFileByPath(this.currentNotePath);
     if (!file) return;
-    const placeholder = `🔴 录音中 — ${filename}\n`;
+    const now = new Date();
+    const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const placeholder = `🔴 **录音中** — ${ts} 开始 · \`${filename}\`\n`;
     this.pendingPlaceholder = placeholder;
     const content = await this.app.vault.read(file);
     await this.app.vault.modify(file, content + placeholder);

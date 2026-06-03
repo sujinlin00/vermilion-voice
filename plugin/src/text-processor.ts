@@ -68,18 +68,32 @@ export class TextProcessor {
     // 4. Filter noise
     if (this.isNoise(cleaned)) return [];
 
-    // 5. Accumulate
+    // 5. If buffer has unsent text from a previous segment, flush it as newline first
+    const results: TickResult[] = [];
+    if (this.buffer.length > 0 && this.sentPos < this.buffer.length) {
+      const prev = this.buffer.slice(this.sentPos).trim();
+      if (prev && !this.isDuplicate(prev, currentTime)) {
+        this.recordOutput(prev, currentTime);
+        results.push(...this.formatOutput(prev, currentTime, 'newline'));
+      }
+      this.buffer = '';
+      this.sentPos = 0;
+      this.needsNewline = false;
+    }
+
+    // 6. Accumulate new text
     this.buffer += cleaned;
 
-    // 6. Duplicate check
-    if (this.isDuplicate(this.buffer, currentTime)) return [];
+    // 7. Duplicate check
+    if (this.isDuplicate(this.buffer, currentTime)) return results;
 
-    // 7. Calculate silence gap
+    // 8. Calculate silence gap
     const silenceSec = this.lastSegmentEnd > 0 ? (startWall - this.lastSegmentEnd) / 1000 : 0;
     this.lastSegmentEnd = endWall;
 
-    // 8. Apply tick rules
-    return this.applyTickRules(silenceSec, currentTime);
+    // 9. Apply tick rules
+    results.push(...this.applyTickRules(silenceSec, currentTime));
+    return results;
   }
 
   /**
