@@ -83,8 +83,6 @@ async function init(config: InitConfig) {
 
   tokens = config.tokensJson;
   puncTokens = config.puncTokensJson;
-  const gpuEp = config.hasWebGPU ? 'webgpu' : 'wasm';
-
   // VAD: always WASM (2-3ms/frame, avoids GPU contention with ASR)
   vadModelBuf = config.vadModelBuffer;
   post({ type: 'progress', phase: 'vad', pct: 0 });
@@ -93,18 +91,12 @@ async function init(config: InitConfig) {
   });
   post({ type: 'progress', phase: 'vad', pct: 100 });
 
-  // ASR: try GPU → WASM fallback
+  // ASR: always WASM (GPU crashes on this model; WASM is stable with warmup)
   asrModelBuf = config.asrModelBuffer;
   post({ type: 'progress', phase: 'asr', pct: 0 });
-  try {
-    asrSession = await ort.InferenceSession.create(config.asrModelBuffer, {
-      executionProviders: [gpuEp], graphOptimizationLevel: 'basic',
-    });
-  } catch {
-    asrSession = await ort.InferenceSession.create(config.asrModelBuffer, {
-      executionProviders: ['wasm'], graphOptimizationLevel: 'basic',
-    });
-  }
+  asrSession = await ort.InferenceSession.create(config.asrModelBuffer, {
+    executionProviders: ['wasm'], graphOptimizationLevel: 'basic',
+  });
   post({ type: 'progress', phase: 'asr', pct: 100 });
 
   // PUNC: always WASM — runs inside finalizeSpeech while VAD is paused, so no contention
@@ -124,6 +116,25 @@ async function init(config: InitConfig) {
   });
 
   for (let i = 0; i < 4; i++) vadCaches[i] = new Float32Array(128 * 19);
+
+  // Warmup ASR: run a tiny silent segment to compile WASM graph (3.7s → 0.8s first run)
+  post({ type: 'progress', phase: 'warmup', pct: 0 });
+  try {
+    const warmupAudio = new Float32Array(8000); // 0.5s silence @ 16kHz
+    const wfbank = new StreamingFbankProcessor({
+      fs: 16000, n_mels: 80, frame_length_ms: 25, frame_shift_ms: 10,
+      dither: 0.0, lfr_m: 7, lfr_n: 6, cmvn: asrCmvn,
+    });
+    const { feat, featLen, dim } = wfbank.accept_waveform(warmupAudio, true);
+    if (featLen > 0) {
+      clipFeat(feat, featLen, dim);
+      await asrSession.run({
+        [asrSession.inputNames[0]]: new ort.Tensor('float32', feat.slice(0, featLen * dim), [1, featLen, dim]),
+        [asrSession.inputNames[1]]: new ort.Tensor('int32', new Int32Array([featLen]), [1]),
+      });
+    }
+  } catch { /* warmup failed — not critical */ }
+  post({ type: 'progress', phase: 'warmup', pct: 100 });
 
   post({ type: 'ready' });
 }
@@ -281,19 +292,7 @@ async function finalizeSpeech(samples: number[], startIdx: number) {
       [asrSession.inputNames[1]]: new ort.Tensor('int32', new Int32Array([featLen]), [1]),
     };
     const tInfer = performance.now();
-    let outputs: any;
-    try {
-      outputs = await asrSession.run(feeds);
-    } catch (e: any) {
-      if ((e.message?.includes('fc') || e.message?.includes('null')) && asrModelBuf) {
-        asrSession = await ort.InferenceSession.create(asrModelBuf, {
-          executionProviders: ['wasm'], graphOptimizationLevel: 'basic',
-        });
-        outputs = await asrSession.run(feeds);
-      } else {
-        throw e;
-      }
-    }
+    const outputs = await asrSession.run(feeds);
     const asrInferMs = performance.now() - tInfer;
 
     // Decode

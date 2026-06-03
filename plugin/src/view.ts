@@ -10,6 +10,7 @@ export class VoiceSoloView extends ItemView {
   private segCountEl: HTMLElement;
   private btnStart: HTMLButtonElement;
   private btnStop: HTMLButtonElement;
+  private btnClear: HTMLButtonElement;
   private segCount = 0;
 
   // Callbacks set by main plugin
@@ -58,9 +59,15 @@ export class VoiceSoloView extends ItemView {
     });
     this.btnStop.disabled = true;
 
+    this.btnClear = controls.createEl('button', {
+      text: '清屏',
+      cls: 'voice-solo-btn voice-solo-btn-clear',
+    });
+
     this.btnStart.addEventListener('click', async () => {
       if (this.onStart) {
         this.btnStart.disabled = true;
+        this.btnClear.disabled = true;
         this.setStatus('loading', '请求麦克风...');
         try {
           await this.onStart();
@@ -70,6 +77,7 @@ export class VoiceSoloView extends ItemView {
         } catch (e: any) {
           this.setStatus('error', e.message);
           this.btnStart.disabled = false;
+          this.btnClear.disabled = false;
         }
       }
     });
@@ -78,8 +86,13 @@ export class VoiceSoloView extends ItemView {
       this.isRunning = false;
       this.btnStart.disabled = false;
       this.btnStop.disabled = true;
+      this.btnClear.disabled = false;
       this.setStatus('idle', '已停止');
       if (this.onStop) this.onStop();
+    });
+
+    this.btnClear.addEventListener('click', () => {
+      this.clear();
     });
 
     // Stats bar

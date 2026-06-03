@@ -1,14 +1,32 @@
 # 07 — 任务规划：插件集成路线
 
-> 2026-05-31 | MVP-1 完成后的下一步工作
+> 2026-05-31 | 最后更新 2026-06-02
 
 ## 当前状态
 
-浏览器端全流水线已验证通过（`mvp-1/test_models.html`）：
+Obsidian 插件已完成核心流水线并在真实环境中验证：
 
 ```
-麦克风 → VAD(WebGPU) → ASR(WASM) → PUNC(WebGPU) → 文本
+麦克风 → VAD(WASM) → ASR(WASM) → PUNC(WASM) → 文本
 ```
+
+**已验证通过：**
+- [x] 插件骨架（main.ts + view.ts + worker.ts + types.ts）
+- [x] Worker 从 Blob URL 创建（绕过 app:// 跨域限制）
+- [x] 所有模型数据由主线程预加载，postMessage 传输
+- [x] ORT 1.20.1 静态导入 + esbuild 打包（0 动态 import）
+- [x] VAD(WASM) → ASR(WASM) → PUNC(WASM) 全流水线
+- [x] ASR 预热（消除首句冷启动 3.7s→0.9s）
+- [x] 音频零丢失（ASR 期间累积音频 + fbank，仅跳过 VAD ONNX）
+- [x] GPU 崩溃回退 + WASM 统一化
+- [x] TextProcessor 断句 + 去重
+- [x] 性能基准：ASR ~8x 实时，VAD 2ms/帧，PUNC 10ms
+- [x] 固定后端策略（VAD/PUNC WASM，ASR WASM+预热）
+
+**已知限制：**
+- ASR 期间 VAD 暂停（~1s 段间盲区）
+- 无多线程 WASM（Blob Worker 安全限制）
+- PUNC 无跨句上下文
 
 ## 路线：三步进入 Obsidian
 
@@ -74,10 +92,13 @@
 | 项 | 优先级 | 说明 |
 |----|--------|------|
 | AudioWorklet 抗混叠滤波 | 低 | 当前最近邻抽取有混叠，加线性插值或 Sinc |
-| WebGPU ASR 崩溃根因 | 中 | `reading 'fc'` 是 ORT 内部问题，需关注 upstream |
+| WebGPU ASR 崩溃根因 | ~~中~~ 已绕过 | `reading 'fc'` 是 ORT 内部问题，ASR 改用 WASM |
 | JS fbank 精度对齐 Python | 中 | 当前 0.077 nat 差异，可进一步排查 FFT/Mel 细节 |
 | PUNC 上下文管理 | 低 | CT-Transformer 跨句缓存（当前每段独立） |
 | 内存优化 | 中 | 500MB 模型常驻，长时间录音 buffer 管理 |
+| ~~ASR 首句冷启动~~ | ✅ 已解决 | WASM 预热编译，3.7s→0.9s |
+| ~~GPU→WASM session 重建开销~~ | ✅ 已解决 | ASR 直接 WASM，无重建 |
+| ~~VAD/ASR session 争用~~ | ✅ 已解决 | VAD/PUNC WASM，ASR 期间 VAD 暂停 |
 
 ## 开发顺序
 

@@ -1,25 +1,19 @@
 import esbuild from 'esbuild';
-import { copyFileSync, readFileSync, writeFileSync, readdirSync } from 'fs';
+import { copyFileSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const prod = process.argv.includes('production');
 
-// Copy ORT runtime files from mvp-1
 const mvpDir = join(__dirname, '..', 'mvp-1');
 const libDir = join(__dirname, 'lib');
-const ortFiles = readdirSync(mvpDir).filter(f => f.startsWith('ort-'));
-
-for (const f of ortFiles) {
-  copyFileSync(join(mvpDir, f), join(libDir, f));
-}
 
 // Copy AudioWorklet
 copyFileSync(join(mvpDir, 'mic_worklet.js'), join(__dirname, 'mic_worklet.js'));
 
-// Copy ORT bundle
-copyFileSync(join(mvpDir, 'ort.bundle.min.mjs'), join(libDir, 'ort.bundle.min.mjs'));
+// ORT bundle: committed ort.bundle.min.mjs (npm wasm-only build, 468KB)
+// ort-wasm-simd-threaded.wasm (~11MB) is downloaded at runtime from CDN
 
 // Copy fbank + streaming_fbank (bundled into worker)
 // streaming_fbank.js imports from '../poc-2/fbank.js' — rewrite to local path
@@ -36,17 +30,21 @@ writeFileSync(join(libDir, 'streaming_fbank.js'), fbankCode);
 // Copy styles
 copyFileSync(join(__dirname, 'styles.css'), join(__dirname, 'styles.css'));
 
-// -- Build worker (module worker, fbank + ORT bundled) --
-await esbuild.build({
-  entryPoints: ['src/worker.ts'],
+// Copy models config
+copyFileSync(join(__dirname, 'models.json'), join(__dirname, 'models.json'));
+
+// -- Build workers (dual Worker: VAD + ASR/PUNC) --
+const workerOpts = {
   bundle: true,
   format: 'esm',
   platform: 'browser',
   target: 'es2020',
-  outfile: 'worker.js',
   sourcemap: prod ? false : 'inline',
   minify: prod,
-});
+};
+
+await esbuild.build({ ...workerOpts, entryPoints: ['src/worker-vad.ts'], outfile: 'worker-vad.js' });
+await esbuild.build({ ...workerOpts, entryPoints: ['src/worker-asr.ts'], outfile: 'worker-asr.js' });
 
 // -- Build main plugin --
 await esbuild.build({

@@ -1,0 +1,17 @@
+{
+  "vad": {
+    "name": "speech_fsmn_vad_zh-cn-16k-common-onnx",
+    "url": "https://modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-onnx/resolve/master",
+    "files": ["model_quant.onnx", "am.mvn"]
+  },
+  "asr": {
+    "name": "speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx",
+    "url": "https://modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx/resolve/master",
+    "files": ["model_quant.onnx", "am.mvn", "tokens.json"]
+  },
+  "punc": {
+    "name": "punc_ct-transformer_zh-cn-common-vocab272727-onnx",
+    "url": "https://modelscope.cn/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-onnx/resolve/master",
+    "files": ["model_quant.onnx", "tokens.json"]
+  }
+}
