@@ -1,0 +1,23 @@
+{
+  "text_processor": {
+    "silence_threshold": 2.5,
+    "max_line_chars": 90,
+    "dedup_window": 5.0
+  },
+  "vad": {
+    "min_speech_duration": 0.3,
+    "max_speech_duration": 4.0,
+    "pre_roll_duration": 0.08,
+    "post_roll_duration": 0.12,
+    "speech_start_frames": {
+      "high": 10,
+      "medium": 20,
+      "low": 30
+    },
+    "speech_end_frames": {
+      "high": 50,
+      "medium": 100,
+      "low": 150
+    }
+  }
+}

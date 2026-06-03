@@ -36,10 +36,18 @@ export class TextProcessor {
   private recentOutputs: Array<{ text: string; time: number }> = [];
   private header = '';
 
-  // Config
-  private maxLineChars = 60;
-  private silenceThresholdSec = 2.0;
+  // Config (overridable via constructor)
+  private maxLineChars = 90;
+  private silenceThresholdSec = 2.5;
   private dedupWindowSec = 5.0;
+
+  constructor(cfg?: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number }) {
+    if (cfg) {
+      if (cfg.silence_threshold != null) this.silenceThresholdSec = cfg.silence_threshold;
+      if (cfg.max_line_chars != null) this.maxLineChars = cfg.max_line_chars;
+      if (cfg.dedup_window != null) this.dedupWindowSec = cfg.dedup_window;
+    }
+  }
 
   // ---- Public ----
 

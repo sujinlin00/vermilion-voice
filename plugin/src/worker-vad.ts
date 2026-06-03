@@ -26,12 +26,12 @@ let speechStart = -1;
 let speechSamples: number[] = [];
 
 const SIL_THRESH = 0.2;
-const SPEECH_START_FRAMES = 20;
-const SPEECH_END_FRAMES = 100;
-const MAX_SPEECH_FRAMES = 600;
-const PRE_ROLL_MS = 80;
-const POST_ROLL_MS = 120;
-const MIN_SPEECH_SAMPLES = 3200;
+let speechStartFrames = 20;
+let speechEndFrames = 100;
+let maxSpeechFrames = 600;
+let preRollMs = 80;
+let postRollMs = 120;
+let minSpeechSamples = 3200;
 
 function post(msg: VadToMain, transfer?: Transferable[]) {
   if (transfer) {
@@ -52,6 +52,24 @@ function clipFeat(feat: Float32Array, len: number, dim: number) {
 
 // ---- Init ----
 async function init(config: import('./types').VadInitConfig) {
+  // Apply vadCfg from settings.json
+  const cfg = config.vadCfg;
+  if (cfg) {
+    const sens = config.sensitivity || 'medium';
+    speechStartFrames = cfg.speech_start_frames[sens] ?? 20;
+    speechEndFrames = cfg.speech_end_frames[sens] ?? 100;
+    maxSpeechFrames = Math.round(cfg.max_speech_duration * 100);  // duration(s) → frames(10ms)
+    preRollMs = Math.round(cfg.pre_roll_duration * 1000);
+    postRollMs = Math.round(cfg.post_roll_duration * 1000);
+    minSpeechSamples = Math.round(cfg.min_speech_duration * 16000);  // duration(s) → samples(16kHz)
+  } else {
+    // Fallback: sensitivity only
+    const sens = config.sensitivity || 'medium';
+    if (sens === 'low') { speechStartFrames = 30; speechEndFrames = 150; }
+    else if (sens === 'high') { speechStartFrames = 10; speechEndFrames = 50; }
+    else { speechStartFrames = 20; speechEndFrames = 100; }
+  }
+
   post({ type: 'progress', phase: 'ort', pct: 100 });
 
   ort.env.wasm.wasmPaths = 'https://voice-solo.local/';
@@ -91,7 +109,7 @@ async function init(config: import('./types').VadInitConfig) {
 
 // ---- Emit speech segment ----
 function emitSpeech() {
-  if (speechSamples.length < MIN_SPEECH_SAMPLES) {
+  if (speechSamples.length < minSpeechSamples) {
     speechSamples = []; speechStart = -1;
     return;
   }
@@ -138,8 +156,8 @@ async function processChunk(chunk: Float32Array) {
   // VAD state machine
   const T = scoresData.length / 248;
   let segmentSpeechFrames = speechSamples.length / 160;
-  const preRollSamples = PRE_ROLL_MS * 16;
-  const postRollSamples = POST_ROLL_MS * 16;
+  const preRollSamples = preRollMs * 16;
+  const postRollSamples = postRollMs * 16;
 
   for (let t = 0; t < T; t++) {
     const silScore = scoresData[t * 248];
@@ -149,7 +167,7 @@ async function processChunk(chunk: Float32Array) {
       silenceFrames = 0;
       speechFrames++;
       segmentSpeechFrames++;
-      if (vadState === 'SILENCE' && speechFrames >= SPEECH_START_FRAMES) {
+      if (vadState === 'SILENCE' && speechFrames >= speechStartFrames) {
         vadState = 'SPEECH';
         const rawStart = fullAudio.length - chunk.length + Math.floor(t * 160);
         speechStart = Math.max(0, rawStart - preRollSamples);
@@ -167,7 +185,7 @@ async function processChunk(chunk: Float32Array) {
       speechFrames = 0;
       if (vadState === 'SPEECH') {
         silenceFrames++;
-        if (silenceFrames >= SPEECH_END_FRAMES) {
+        if (silenceFrames >= speechEndFrames) {
           const postEnd = Math.min(
             fullAudio.length,
             fullAudio.length - chunk.length + Math.floor(t * 160) + postRollSamples
@@ -179,7 +197,7 @@ async function processChunk(chunk: Float32Array) {
           vadState = 'SILENCE';
           silenceFrames = 0;
           post({ type: 'status', status: 'listening' });
-        } else if (segmentSpeechFrames >= MAX_SPEECH_FRAMES && silenceFrames >= 3) {
+        } else if (segmentSpeechFrames >= maxSpeechFrames && silenceFrames >= 3) {
           const postEnd = Math.min(
             fullAudio.length,
             fullAudio.length - chunk.length + Math.floor(t * 160) + postRollSamples

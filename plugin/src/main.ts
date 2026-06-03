@@ -1,7 +1,7 @@
 import { Plugin, PluginSettingTab, Setting } from 'obsidian';
 import type { App } from 'obsidian';
 import { VoiceSoloView, VIEW_TYPE } from './view';
-import type { VoiceSoloSettings } from './types';
+import type { VoiceSoloSettings, AppConfig, VadConfig } from './types';
 import type { VadToMain, AsrToMain } from './types';
 import { TextProcessor } from './text-processor';
 import { FlacEncoder } from './flac-encoder';
@@ -120,6 +120,8 @@ const DEFAULT_SETTINGS: VoiceSoloSettings = {
   recordingFolder: 'Recordings',
   postProcessEnabled: false,
   audioDevice: '',
+  vadSensitivity: 'medium',
+  outputInterval: 3000,
   hotWords: {},
 };
 
@@ -132,6 +134,8 @@ export default class VoiceSoloPlugin extends Plugin {
   private workletNode: AudioWorkletNode | null = null;
   private pluginDir: string = '';
   private textProc: TextProcessor = new TextProcessor();
+  private appConfig: AppConfig | null = null;
+  private vadCfg: VadConfig | null = null;
   private vadReady = false;
   private asrReady = false;
   private asrBusy = false;
@@ -144,6 +148,7 @@ export default class VoiceSoloPlugin extends Plugin {
   private pendingPlaceholder: string = '';
 
   private tickTimer: number = 0;
+  private workerCleanupTimer: number = 0;
 
   private addLog(msg: string) {
     const ts = Date.now();
@@ -166,6 +171,7 @@ export default class VoiceSoloPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    this.loadAppConfig();
 
     this.registerView(VIEW_TYPE, (leaf) => {
       const view = new VoiceSoloView(leaf);
@@ -189,6 +195,12 @@ export default class VoiceSoloPlugin extends Plugin {
 
   onunload() {
     this.stopRecognition();
+    if (this.workerCleanupTimer) { clearTimeout(this.workerCleanupTimer); this.workerCleanupTimer = 0; }
+    // Terminate workers on plugin unload
+    if (this.vadWorker) { this.vadWorker.terminate(); this.vadWorker = null; }
+    if (this.asrWorker) { this.asrWorker.terminate(); this.asrWorker = null; }
+    this.vadReady = false;
+    this.asrReady = false;
     this.app.workspace.detachLeavesOfType(VIEW_TYPE);
   }
 
@@ -249,10 +261,21 @@ export default class VoiceSoloPlugin extends Plugin {
             if (this.settings.outputToNote) this.appendToNote(r.text);
           }
         }
-      }, 3000);
+      }, this.settings.outputInterval);
 
-      this.addLog('[step] creating workers...');
-      await this.createWorkers(view);
+      // Cancel pending worker cleanup timer
+      if (this.workerCleanupTimer) { clearTimeout(this.workerCleanupTimer); this.workerCleanupTimer = 0; }
+
+      // Reuse existing workers if still alive, otherwise create new ones
+      if (this.vadReady && this.asrReady && this.vadWorker && this.asrWorker) {
+        this.addLog('[step] reusing existing workers');
+        view.setStatus('ready', '模型就绪 — 开始识别');
+        this.vadWorker.postMessage({ type: 'start' });
+        this.addLog('START sent to VAD (reuse)');
+      } else {
+        this.addLog('[step] creating workers...');
+        await this.createWorkers(view);
+      }
       this.addLog('[step] starting mic...');
       await this.startMic(view);
       this.addLog('[step] startMic done');
@@ -298,25 +321,28 @@ export default class VoiceSoloPlugin extends Plugin {
       this.recordingPath = '';
     }
 
-    // Stop VAD worker (flushes last speech segment)
+    // Stop VAD worker (resets state, but keeps worker alive for reuse)
     if (this.vadWorker) {
       this.vadWorker.postMessage({ type: 'stop' });
     }
 
-    // Wait for ASR queue to drain (current segment + pending)
+    // Wait for ASR queue to drain
     if (this.asrWorker) {
       await this.waitForAsrDrain();
-      this.asrWorker.terminate();
-      this.asrWorker = null;
     }
 
-    if (this.vadWorker) {
-      this.vadWorker.terminate();
-      this.vadWorker = null;
-    }
+    // Don't terminate workers — keep them alive for next start
+    // Release after 5 minutes if not restarted
+    if (this.workerCleanupTimer) { clearTimeout(this.workerCleanupTimer); }
+    this.workerCleanupTimer = window.setTimeout(() => {
+      this.addLog('[cleanup] 5min idle, releasing workers');
+      if (this.vadWorker) { this.vadWorker.terminate(); this.vadWorker = null; }
+      if (this.asrWorker) { this.asrWorker.terminate(); this.asrWorker = null; }
+      this.vadReady = false;
+      this.asrReady = false;
+      this.workerCleanupTimer = 0;
+    }, 5 * 60 * 1000);
 
-    this.vadReady = false;
-    this.asrReady = false;
     this.asrBusy = false;
     this.flushLog('stop');
   }
@@ -418,6 +444,8 @@ export default class VoiceSoloPlugin extends Plugin {
         vadModelBuffer: vadBuf,
         vadCmvnText: vadCmvn,
         simdWasm: simdWasm.slice(0),
+        sensitivity: this.settings.vadSensitivity,
+        vadCfg: this.vadCfg!,
       },
     });
 
@@ -696,6 +724,24 @@ export default class VoiceSoloPlugin extends Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
+
+  private loadAppConfig() {
+    const fs: any = (window as any).require?.('fs') || require('fs');
+    const path: any = (window as any).require?.('path') || require('path');
+    const cfgPath = path.join(this.pluginDir, 'settings.json');
+    try {
+      if (fs.existsSync(cfgPath)) {
+        const raw = fs.readFileSync(cfgPath, 'utf-8');
+        this.appConfig = JSON.parse(raw);
+        this.vadCfg = this.appConfig?.vad || null;
+        // Re-create TextProcessor with config
+        this.textProc = new TextProcessor(this.appConfig?.text_processor);
+        this.addLog(`[config] loaded settings.json`);
+      }
+    } catch (e: any) {
+      this.addLog(`[config] failed to load settings.json: ${e.message}`);
+    }
+  }
 }
 
 // ---- Settings Tab ----
@@ -808,6 +854,37 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         toggle.setValue(s.postProcessEnabled);
         toggle.onChange(async (v) => {
           this.plugin.settings.postProcessEnabled = v;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    // ═══ 识别粒度 ═══
+    this.sectionHeading(containerEl, '识别粒度');
+
+    new Setting(containerEl)
+      .setName('语音分段灵敏度')
+      .setDesc('VAD 切分灵敏度：高 = 短句快切，低 = 长句慢切（需重新开始识别生效）')
+      .addDropdown(d => {
+        d.addOption('high', '高（短句快切）');
+        d.addOption('medium', '中（默认）');
+        d.addOption('low', '低（长句慢切）');
+        d.setValue(s.vadSensitivity);
+        d.onChange(async (v) => {
+          this.plugin.settings.vadSensitivity = v as 'low' | 'medium' | 'high';
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('文本推送间隔')
+      .setDesc('转录文本输出到笔记的刷新频率')
+      .addDropdown(d => {
+        d.addOption('1000', '1 秒（实时）');
+        d.addOption('3000', '3 秒（默认）');
+        d.addOption('5000', '5 秒（省流）');
+        d.setValue(String(s.outputInterval));
+        d.onChange(async (v) => {
+          this.plugin.settings.outputInterval = Number(v);
           await this.plugin.saveSettings();
         });
       });

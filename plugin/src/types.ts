@@ -26,8 +26,40 @@ export interface VoiceSoloSettings {
   // Audio
   audioDevice: string;
 
+  // 识别粒度
+  vadSensitivity: 'low' | 'medium' | 'high';
+  outputInterval: number; // ms: 1000 | 3000 | 5000
+
   // Advanced
   hotWords: Record<string, string>;
+}
+
+// ---- settings.json config ----
+
+export interface TextProcessorConfig {
+  silence_threshold: number;
+  max_line_chars: number;
+  dedup_window: number;
+}
+
+export interface VadSensitivityFrames {
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export interface VadConfig {
+  min_speech_duration: number;
+  max_speech_duration: number;
+  pre_roll_duration: number;
+  post_roll_duration: number;
+  speech_start_frames: VadSensitivityFrames;
+  speech_end_frames: VadSensitivityFrames;
+}
+
+export interface AppConfig {
+  text_processor: TextProcessorConfig;
+  vad: VadConfig;
 }
 
 // ---- Worker A: VAD (always running, never blocked) ----
@@ -37,6 +69,8 @@ export interface VadInitConfig {
   vadCmvnText: string;
   simdWasm: ArrayBuffer;
   jsepWasm: ArrayBuffer | null;
+  sensitivity: 'low' | 'medium' | 'high';
+  vadCfg: VadConfig;
 }
 
 export type MainToVad =
