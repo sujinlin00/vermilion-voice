@@ -108,7 +108,7 @@ async function init(config: import('./types').VadInitConfig) {
 }
 
 // ---- Emit speech segment ----
-function emitSpeech() {
+function emitSpeech(reason: 'silence' | 'forced' = 'silence') {
   if (speechSamples.length < minSpeechSamples) {
     speechSamples = []; speechStart = -1;
     return;
@@ -119,7 +119,7 @@ function emitSpeech() {
   speechSamples = []; speechStart = -1;
 
   // Transfer audio buffer to main thread (zero-copy)
-  post({ type: 'segment', audio: audio.buffer, startMs, endMs }, [audio.buffer]);
+  post({ type: 'segment', audio: audio.buffer, startMs, endMs, reason }, [audio.buffer]);
 }
 
 // ---- Process audio chunk ----
@@ -193,7 +193,7 @@ async function processChunk(chunk: Float32Array) {
           for (let s = fullAudio.length - chunk.length + Math.floor(t * 160); s < postEnd; s++) {
             speechSamples.push(fullAudio[s]);
           }
-          emitSpeech();
+          emitSpeech('silence');
           vadState = 'SILENCE';
           silenceFrames = 0;
           post({ type: 'status', status: 'listening' });
@@ -205,7 +205,7 @@ async function processChunk(chunk: Float32Array) {
           for (let s = fullAudio.length - chunk.length + Math.floor(t * 160); s < postEnd; s++) {
             speechSamples.push(fullAudio[s]);
           }
-          emitSpeech();
+          emitSpeech('forced');
           speechStart = Math.max(0, fullAudio.length - chunk.length + Math.floor(t * 160) - preRollSamples);
           speechSamples = [];
           for (let s = speechStart; s < fullAudio.length - chunk.length + Math.floor(t * 160); s++) {
@@ -250,7 +250,7 @@ self.onmessage = async (e: MessageEvent<MainToVad>) => {
       case 'stop': {
         running = false;
         if (vadState === 'SPEECH' && speechSamples.length > 0) {
-          emitSpeech();
+          emitSpeech('silence');
         }
         reset();
         break;

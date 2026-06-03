@@ -144,7 +144,7 @@ export default class VoiceSoloPlugin extends Plugin {
   private asrBusy = false;
   private logBuf: string[] = [];
   private logTimer = 0;
-  private pendingSegments: Array<{ audio: Float32Array; startMs: number; endMs: number }> = [];
+  private pendingSegments: Array<{ audio: Float32Array; startMs: number; endMs: number; reason?: string }> = [];
   private flacEncoder: FlacEncoder | null = null;
   private currentNotePath: string = '';
   private recordingPath: string = '';
@@ -152,6 +152,8 @@ export default class VoiceSoloPlugin extends Plugin {
 
   private tickTimer: number = 0;
   private workerCleanupTimer: number = 0;
+  private puncTimer: number = 0;
+  private puncPending: { text: string; startMs: number; endMs: number; view: VoiceSoloView } | null = null;
 
   private addLog(msg: string) {
     const ts = Date.now();
@@ -305,6 +307,8 @@ export default class VoiceSoloPlugin extends Plugin {
       }
     }
     this.textProc.reset();
+    if (this.puncTimer) { clearTimeout(this.puncTimer); this.puncTimer = 0; }
+    this.puncPending = null;
     this.pendingSegments = [];
 
     // Stop mic first
@@ -511,7 +515,7 @@ export default class VoiceSoloPlugin extends Plugin {
         break;
       case 'segment':
         this.addLog(`VAD segment ${(msg.startMs/1000).toFixed(1)}s-${(msg.endMs/1000).toFixed(1)}s`);
-        this.dispatchSegment(msg.audio, msg.startMs, msg.endMs);
+        this.dispatchSegment(msg.audio, msg.startMs, msg.endMs, msg.reason);
         break;
       case 'error':
         this.addLog(`VAD ERROR: ${msg.message}`);
@@ -540,16 +544,15 @@ export default class VoiceSoloPlugin extends Plugin {
         else if (msg.status === 'punc') view.setStatus('processing', '标点中...');
         break;
       case 'result': {
-        this.addLog(`ASR result: "${msg.text.slice(0, 40)}..."`);
-        this.asrBusy = false;
-        const parts = this.textProc.tick(msg.text, msg.startMs, msg.endMs);
-        for (const p of parts) {
-          if (p.text) {
-            view.addSegment(p.text, msg.startMs, msg.endMs, msg.perf);
-            if (this.settings.outputToNote) this.appendToNote(p.text);
-          }
-        }
-        this.drainPending();
+        this.addLog(`ASR result: "${msg.text.slice(0, 40)}..." reason=${msg.reason || 'silence'}`);
+        this.handleAsrResult(msg.text, msg.startMs, msg.endMs, msg.reason, view, msg.perf);
+        break;
+      }
+      case 'punc_result': {
+        this.addLog(`ASR punc_result: "${msg.text.slice(0, 40)}..."`);
+        if (this.puncTimer) { clearTimeout(this.puncTimer); this.puncTimer = 0; }
+        this.puncPending = null;
+        this.handleAsrResult(msg.text, msg.startMs, msg.endMs, undefined, view);
         break;
       }
       case 'error':
@@ -564,7 +567,7 @@ export default class VoiceSoloPlugin extends Plugin {
     }
   }
 
-  dispatchSegment(audioBuf: ArrayBuffer, startMs: number, endMs: number) {
+  dispatchSegment(audioBuf: ArrayBuffer, startMs: number, endMs: number, reason: 'silence' | 'forced' = 'silence') {
     if (this.asrBusy) {
       this.addLog(`DISPATCH queue (busy, pending=${this.pendingSegments.length + 1})`);
       if (this.pendingSegments.length < 3) {
@@ -572,26 +575,94 @@ export default class VoiceSoloPlugin extends Plugin {
           audio: new Float32Array(audioBuf),
           startMs,
           endMs,
+          reason,
         });
       }
       return;
     }
-    this.addLog(`DISPATCH send to ASR`);
+    const skipPunc = !!this.textProc.getCarryBuffer();
+    this.addLog(`DISPATCH send to ASR (reason=${reason}, skipPunc=${skipPunc})`);
     this.asrBusy = true;
     const audio = new Float32Array(audioBuf);
     this.asrWorker!.postMessage(
-      { type: 'segment', audio: audio.buffer, startMs, endMs },
+      { type: 'segment', audio: audio.buffer, startMs, endMs, reason, skipPunc },
       [audio.buffer],
     );
+  }
+
+  /**
+   * Unified ASR result handling:
+   * 1. If carry exists → combine carry + text, send to punc, check for re-split
+   * 2. If forced → split at second-to-last punctuation, store carry
+   * 3. Otherwise → output directly
+   */
+  private handleAsrResult(
+    text: string, startMs: number, endMs: number,
+    reason: string | undefined, view: VoiceSoloView, perf?: any,
+  ) {
+    const carry = this.textProc.getCarryBuffer();
+
+    if (carry) {
+      // Has carry from previous forced segment: combine and re-punctuate
+      const combined = carry + text;
+      this.textProc.clearCarryBuffer();
+      this.addLog(`[carry] combined: "${combined.slice(0, 40)}..."`);
+      // Timeout protection: if punc doesn't respond in 5s, output without punc
+      this.puncPending = { text: combined, startMs, endMs, view };
+      this.puncTimer = window.setTimeout(() => {
+        this.addLog('[carry] punc timeout, outputting without punc');
+        this.puncTimer = 0;
+        this.puncPending = null;
+        this.asrBusy = false;
+        const parts = this.textProc.tick(combined, startMs, endMs);
+        for (const p of parts) {
+          if (p.text) {
+            view.addSegment(p.text, startMs, endMs);
+            if (this.settings.outputToNote) this.appendToNote(p.text);
+          }
+        }
+        this.drainPending();
+      }, 5000);
+      this.asrWorker!.postMessage({ type: 'punc', text: combined, startMs, endMs });
+      return;
+    }
+
+    // No carry
+    if (reason === 'forced') {
+      // Forced segment: split at second-to-last punctuation, store carry
+      const outputPart = this.textProc.setCarryText(text);
+      if (outputPart) {
+        const parts = this.textProc.tick(outputPart, startMs, endMs);
+        for (const p of parts) {
+          if (p.text) {
+            view.addSegment(p.text, startMs, endMs, perf);
+            if (this.settings.outputToNote) this.appendToNote(p.text);
+          }
+        }
+      }
+    } else {
+      // Normal segment: output directly, no splitting
+      const parts = this.textProc.tick(text, startMs, endMs);
+      for (const p of parts) {
+        if (p.text) {
+          view.addSegment(p.text, startMs, endMs, perf);
+          if (this.settings.outputToNote) this.appendToNote(p.text);
+        }
+      }
+    }
+
+    this.asrBusy = false;
+    this.drainPending();
   }
 
   drainPending() {
     if (this.pendingSegments.length === 0) return;
     this.addLog(`DISPATCH drain (pending=${this.pendingSegments.length})`);
     const next = this.pendingSegments.shift()!;
+    const skipPunc = !!this.textProc.getCarryBuffer();
     this.asrBusy = true;
     this.asrWorker!.postMessage(
-      { type: 'segment', audio: next.audio.buffer, startMs: next.startMs, endMs: next.endMs },
+      { type: 'segment', audio: next.audio.buffer, startMs: next.startMs, endMs: next.endMs, reason: next.reason, skipPunc },
       [next.audio.buffer],
     );
   }

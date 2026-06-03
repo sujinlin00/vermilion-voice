@@ -119,7 +119,7 @@ function isMostlyAscii(text: string): boolean {
 }
 
 // ---- Process speech segment ----
-async function processSegment(audio: Float32Array, startMs: number, endMs: number) {
+async function processSegment(audio: Float32Array, startMs: number, endMs: number, reason?: string, skipPunc?: boolean) {
   const tTotal = performance.now();
 
   try {
@@ -173,8 +173,9 @@ async function processSegment(audio: Float32Array, startMs: number, endMs: numbe
     const asrDecodeMs = performance.now() - tDecode;
 
     // PUNC (skip for English-heavy segments — CT-Transformer is Chinese-only)
+    // Also skip when skipPunc=true (carry-over will re-punctuate combined text)
     let puncMs = 0;
-    if (puncSession && text.length > 0 && !isMostlyAscii(text)) {
+    if (puncSession && text.length > 0 && !isMostlyAscii(text) && !skipPunc) {
       post({ type: 'status', status: 'punc' });
       const tPunc = performance.now();
       text = await runPunc(text);
@@ -192,7 +193,7 @@ async function processSegment(audio: Float32Array, startMs: number, endMs: numbe
         : 0,
     };
 
-    post({ type: 'result', text, startMs, endMs, perf });
+    post({ type: 'result', text, startMs, endMs, perf, reason });
   } catch (e: any) {
     post({ type: 'error', message: `ASR: ${e.message || String(e)}` });
   }
@@ -252,7 +253,17 @@ self.onmessage = async (e: MessageEvent<MainToAsr>) => {
         break;
       case 'segment': {
         const audio = new Float32Array(msg.audio);
-        await processSegment(audio, msg.startMs, msg.endMs);
+        await processSegment(audio, msg.startMs, msg.endMs, msg.reason, msg.skipPunc);
+        break;
+      }
+      case 'punc': {
+        if (puncSession && msg.text.length > 0 && !isMostlyAscii(msg.text)) {
+          post({ type: 'status', status: 'punc' });
+          const result = await runPunc(msg.text);
+          post({ type: 'punc_result', text: result, startMs: msg.startMs, endMs: msg.endMs });
+        } else {
+          post({ type: 'punc_result', text: msg.text, startMs: msg.startMs, endMs: msg.endMs });
+        }
         break;
       }
       case 'stop':

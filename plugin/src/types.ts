@@ -43,6 +43,7 @@ export interface TextProcessorConfig {
   silence_threshold: number;
   max_line_chars: number;
   dedup_window: number;
+  split_punctuation: string;  // carry 切分识别的标点（句末标点）
 }
 
 export interface VadSensitivityFrames {
@@ -85,7 +86,7 @@ export type MainToVad =
 export type VadToMain =
   | { type: 'ready' }
   | { type: 'status'; status: 'listening' | 'speech' }
-  | { type: 'segment'; audio: ArrayBuffer; startMs: number; endMs: number }
+  | { type: 'segment'; audio: ArrayBuffer; startMs: number; endMs: number; reason: 'silence' | 'forced' }
   | { type: 'error'; message: string }
   | { type: 'progress'; phase: string; pct: number };
 
@@ -103,12 +104,14 @@ export interface AsrInitConfig {
 
 export type MainToAsr =
   | { type: 'init'; config: AsrInitConfig }
-  | { type: 'segment'; audio: ArrayBuffer; startMs: number; endMs: number }
+  | { type: 'segment'; audio: ArrayBuffer; startMs: number; endMs: number; reason?: 'silence' | 'forced'; skipPunc?: boolean }
+  | { type: 'punc'; text: string; startMs: number; endMs: number }
   | { type: 'stop' };
 
 export type AsrToMain =
   | { type: 'ready' }
   | { type: 'status'; status: 'asr' | 'punc' }
-  | { type: 'result'; text: string; startMs: number; endMs: number; perf: PerfStats }
+  | { type: 'result'; text: string; startMs: number; endMs: number; perf: PerfStats; reason?: string }
+  | { type: 'punc_result'; text: string; startMs: number; endMs: number }
   | { type: 'error'; message: string }
   | { type: 'progress'; phase: string; pct: number };

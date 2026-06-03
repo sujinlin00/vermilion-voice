@@ -35,17 +35,20 @@ export class TextProcessor {
   private lastSegmentEnd = 0;        // ms
   private recentOutputs: Array<{ text: string; time: number }> = [];
   private header = '';
+  private carryBuffer = '';
 
   // Config (overridable via constructor)
   private maxLineChars = 90;
   private silenceThresholdSec = 2.5;
   private dedupWindowSec = 5.0;
+  private splitPunctuation = '。！？.!?；;，、';
 
-  constructor(cfg?: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number }) {
+  constructor(cfg?: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number; split_punctuation?: string }) {
     if (cfg) {
       if (cfg.silence_threshold != null) this.silenceThresholdSec = cfg.silence_threshold;
       if (cfg.max_line_chars != null) this.maxLineChars = cfg.max_line_chars;
       if (cfg.dedup_window != null) this.dedupWindowSec = cfg.dedup_window;
+      if (cfg.split_punctuation != null) this.splitPunctuation = cfg.split_punctuation;
     }
   }
 
@@ -134,20 +137,63 @@ export class TextProcessor {
     return [];
   }
 
-  /** Flush remaining buffer on stop. */
+  /** Flush remaining buffer and carryBuffer on stop. */
   flush(currentTime?: number): TickResult[] {
     if (currentTime == null) currentTime = Date.now();
-    if (!this.buffer || this.buffer.trim().length === 0) {
-      this.buffer = '';
-      this.sentPos = 0;
-      return [];
+    const results: TickResult[] = [];
+
+    // Flush carryBuffer first
+    if (this.carryBuffer && this.carryBuffer.trim().length > 0) {
+      results.push(...this.formatOutput(this.carryBuffer.trim(), currentTime, 'newline'));
+      this.carryBuffer = '';
     }
-    const text = this.buffer.trim();
+
+    // Flush main buffer
+    if (this.buffer && this.buffer.trim().length > 0) {
+      results.push(...this.formatOutput(this.buffer.trim(), currentTime, 'newline'));
+    }
     this.buffer = '';
     this.sentPos = 0;
     this.needsNewline = false;
-    return this.formatOutput(text, currentTime, 'newline');
+    return results;
   }
+
+  /**
+   * Handle forced-cut segment: split at second-to-last punctuation.
+   * Returns the part that should be output now; stores the rest in carryBuffer.
+   */
+  setCarryText(text: string): string {
+    if (!text) { this.carryBuffer = ''; return ''; }
+
+    // Strip trailing punctuation (all punctuation including commas)
+    const trailingRe = new RegExp(`[${this.splitPunctuation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]+$`);
+    const stripped = text.replace(trailingRe, '');
+    if (!stripped) { this.carryBuffer = ''; return ''; }
+
+    // Find all split-punctuation positions
+    const positions: number[] = [];
+    for (let i = 0; i < stripped.length; i++) {
+      if (this.splitPunctuation.includes(stripped[i])) positions.push(i);
+    }
+
+    if (positions.length >= 2) {
+      // Split at second-to-last punctuation
+      const splitAt = positions[positions.length - 2] + 1;
+      const output = stripped.slice(0, splitAt);
+      this.carryBuffer = stripped.slice(splitAt);
+      return output;
+    } else {
+      // Less than 2 punctuation marks: store everything in carry
+      this.carryBuffer = stripped;
+      return '';
+    }
+  }
+
+  /** Get current carry buffer content. */
+  getCarryBuffer(): string { return this.carryBuffer; }
+
+  /** Clear carry buffer. */
+  clearCarryBuffer() { this.carryBuffer = ''; }
 
   reset() {
     this.buffer = '';
@@ -157,6 +203,7 @@ export class TextProcessor {
     this.prevSegmentTail = '';
     this.lastSegmentEnd = 0;
     this.recentOutputs = [];
+    this.carryBuffer = '';
     this.header = '';
   }
 

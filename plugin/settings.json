@@ -2,7 +2,8 @@
   "text_processor": {
     "silence_threshold": 2.5,
     "max_line_chars": 90,
-    "dedup_window": 5.0
+    "dedup_window": 5.0,
+    "split_punctuation": "。！？.!?；;，、"
   },
   "vad": {
     "min_speech_duration": 0.3,
