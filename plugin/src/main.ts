@@ -142,6 +142,7 @@ export default class VoiceSoloPlugin extends Plugin {
   private currentNotePath: string = '';
   private recordingPath: string = '';
   private pendingPlaceholder: string = '';
+
   private tickTimer: number = 0;
 
   private addLog(msg: string) {
@@ -220,9 +221,10 @@ export default class VoiceSoloPlugin extends Plugin {
         const now = new Date();
         const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
         this.recordingPath = dir + '/录音_' + ts + '.flac';
+        FlacEncoder.pluginDir = this.pluginDir;
         this.flacEncoder = new FlacEncoder(16000, 4096);
-        this.flacEncoder.open(this.recordingPath, fs);
-        this.addLog(`FLAC+WAV recording: ${this.recordingPath}`);
+        await this.flacEncoder.open(this.recordingPath, fs);
+        this.addLog(`FLAC recording: ${this.recordingPath}`);
       }
 
       // Init note output
@@ -284,21 +286,14 @@ export default class VoiceSoloPlugin extends Plugin {
     if (this.micStream) { this.micStream.getTracks().forEach(t => t.stop()); this.micStream = null; }
     if (this.audioCtx) { this.audioCtx.close(); this.audioCtx = null; }
 
-    // Finalize FLAC+WAV recording
+    // Finalize FLAC recording
     if (this.flacEncoder) {
       const flacFs: any = (window as any).require?.('fs') || require('fs');
       const flacDbg = this.flacEncoder.close(flacFs);
       this.addLog(`FLAC close: ${flacDbg}`);
-      this.addLog(`WAV saved: ${this.recordingPath.replace('.flac', '.wav')}`);
-
-      // Debug: generate test tone FLAC for comparison
-      const testPath = this.recordingPath.replace('.flac', '_test.flac');
-      const testDbg = FlacEncoder.debugTestTone(testPath, flacFs);
-      this.addLog(`FLAC test: ${testDbg}`);
-
       this.flacEncoder = null;
       if (this.settings.outputToNote && this.recordingPath) {
-        this.replacePlaceholderWithEmbed();
+        await this.replacePlaceholderWithEmbed();
       }
       this.recordingPath = '';
     }
@@ -626,10 +621,8 @@ export default class VoiceSoloPlugin extends Plugin {
     const file = this.app.vault.getAbstractFileByPath(this.currentNotePath);
     if (!file) return;
     const folder = this.settings.recordingFolder || 'Recordings';
-    // Embed WAV (plays in Obsidian), FLAC available alongside
-    const wavName = this.recordingPath.replace(/\\/g, '/').split('/').pop()!.replace('.flac', '.wav');
-    const flacName = this.recordingPath.replace(/\\/g, '/').split('/').pop()!;
-    const embed = `![[${folder}/${wavName}]]  \n*FLAC: ${flacName}*`;
+    const fname = this.recordingPath.replace(/\\/g, '/').split('/').pop()!;
+    const embed = `![[${folder}/${fname}]]`;
     const content = await this.app.vault.read(file);
     const replaced = content.replace(this.pendingPlaceholder.trim(), embed);
     await this.app.vault.modify(file, replaced);
@@ -642,18 +635,6 @@ export default class VoiceSoloPlugin extends Plugin {
     if (!file) return;
     this.app.vault.read(file).then((content: string) => {
       this.app.vault.modify(file, content + text);
-    });
-  }
-
-  private insertRecordingEmbed() {
-    if (!this.currentNotePath || !this.recordingPath) return;
-    const file = this.app.vault.getAbstractFileByPath(this.currentNotePath);
-    if (!file) return;
-    const fname = this.recordingPath.replace(/\\/g, '/').split('/').pop() || '';
-    const folder = this.settings.recordingFolder || 'Recordings';
-    const embed = `\n![[${folder}/${fname}]]\n`;
-    this.app.vault.read(file).then((content: string) => {
-      this.app.vault.modify(file, content + embed);
     });
   }
 
@@ -682,11 +663,11 @@ export default class VoiceSoloPlugin extends Plugin {
     this.addLog('[mic] worklet loaded');
 
     this.workletNode = new AudioWorkletNode(this.audioCtx, 'mic-processor');
-    this.workletNode.port.onmessage = (e) => {
-      // Save copy for FLAC+WAV (before transferring to VAD)
+    this.workletNode.port.onmessage = async (e) => {
+      // Save copy for FLAC (before transferring to VAD)
       if (this.flacEncoder) {
         const flacFs: any = (window as any).require?.('fs') || require('fs');
-        this.flacEncoder.processChunk(new Float32Array(e.data), flacFs);
+        await this.flacEncoder.processChunk(new Float32Array(e.data), flacFs);
       }
       // Forward to VAD (zero-copy transfer)
       if (this.vadWorker) {

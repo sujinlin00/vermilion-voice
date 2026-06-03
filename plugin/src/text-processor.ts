@@ -206,9 +206,8 @@ export class TextProcessor {
   }
 
   // ---- Output formatting ----
-  // Matches Python _build_output() style:
   //   first-line + newline:    "[HH:MM:SS] text"
-  //   !first-line + newline:   "\n\n[HH:MM:SS] text"  ← time header prefixed to new paragraph
+  //   !first-line + newline:   "\n\n[HH:MM:SS] text"
   //   first-line + continuous: "[HH:MM:SS] text"
   //   !first-line + continuous: "text"
 
@@ -223,15 +222,15 @@ export class TextProcessor {
     if (status === 'newline') {
       if (this.isFirstLine) {
         this.isFirstLine = false;
-        return [{ text: `${timeHeader}\n${text}`, status: 'newline' }];
+        return [{ text: `${timeHeader} ${text}`, status: 'newline' }];
       } else {
-        return [{ text: `\n\n${timeHeader}\n${text}`, status: 'newline' }];
+        return [{ text: `\n\n${timeHeader} ${text}`, status: 'newline' }];
       }
     } else {
       // continuous
       if (this.isFirstLine) {
         this.isFirstLine = false;
-        return [{ text: `${timeHeader}\n${text}`, status: 'continuous' }];
+        return [{ text: `${timeHeader} ${text}`, status: 'continuous' }];
       }
       return [{ text, status: 'continuous' }];
     }
