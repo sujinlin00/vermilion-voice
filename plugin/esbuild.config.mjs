@@ -13,12 +13,6 @@ const DEPLOY_DIR = join(OBSIDIAN_VAULT, '.obsidian/plugins/vermilion-voice');
 // ORT bundle: committed ort.bundle.min.mjs (npm wasm-only build, 468KB)
 // ort-wasm-simd-threaded.wasm (~11MB) is downloaded at runtime from CDN
 
-// Copy styles
-copyFileSync(join(__dirname, 'styles.css'), join(__dirname, 'styles.css'));
-
-// Copy models config
-copyFileSync(join(__dirname, 'models.json'), join(__dirname, 'models.json'));
-
 // -- Build workers (dual Worker: VAD + ASR/PUNC) --
 const workerOpts = {
   bundle: true,
@@ -48,7 +42,7 @@ await esbuild.build({
 
 // Auto-deploy to Obsidian plugins directory
 if (existsSync(DEPLOY_DIR)) {
-  for (const f of ['main.js', 'worker-vad.js', 'worker-asr.js', 'mic_worklet.js', 'settings.json', 'styles.css', 'manifest.json']) {
+  for (const f of ['main.js', 'worker-vad.js', 'worker-asr.js', 'mic_worklet.js', 'models.json', 'settings.json', 'styles.css', 'manifest.json']) {
     const src = join(__dirname, f);
     if (existsSync(src)) {
       copyFileSync(src, join(DEPLOY_DIR, f));
