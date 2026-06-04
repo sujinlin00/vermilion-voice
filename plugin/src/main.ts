@@ -28,6 +28,12 @@ interface ModelsConfig {
   punc: ModelEntry;
 }
 
+function computeMD5(filePath: string, fs: any): string {
+  const crypto = require('crypto');
+  const buf = fs.readFileSync(filePath);
+  return crypto.createHash('md5').update(buf).digest('hex');
+}
+
 function downloadFile(url: string, dest: string, fs: any): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const dir = dest.replace(/[/\\][^/\\]*$/, '');
@@ -46,7 +52,15 @@ function downloadFile(url: string, dest: string, fs: any): Promise<void> {
         return;
       }
       res.pipe(file);
-      file.on('finish', () => { file.close(); resolve(); });
+      file.on('finish', () => {
+        file.close();
+        // Compute and save MD5 after successful download
+        try {
+          const md5 = computeMD5(dest, fs);
+          fs.writeFileSync(dest + '.md5', md5, 'utf-8');
+        } catch { /* ignore md5 errors */ }
+        resolve();
+      });
       file.on('error', (e: any) => { cleanup(); reject(e); });
     }).on('error', (e: any) => { cleanup(); reject(e); });
   });
@@ -75,9 +89,22 @@ async function ensureModels(
     try { fs.mkdirSync(modelDir, { recursive: true }); } catch {}
     for (const f of entry.files) {
       const dest = `${modelDir}/${f}`;
+      const md5File = dest + '.md5';
       const exists = fs.existsSync(dest);
       const isEmpty = exists && fs.statSync(dest).size === 0;
-      if (!exists || isEmpty) {
+
+      // Check MD5 if file exists and is non-empty
+      let md5Ok = false;
+      if (exists && !isEmpty && fs.existsSync(md5File)) {
+        try {
+          const expected = fs.readFileSync(md5File, 'utf-8').trim();
+          const actual = computeMD5(dest, fs);
+          md5Ok = expected === actual;
+          if (!md5Ok) addLog(`${key}/${f}: MD5 mismatch (expected ${expected.slice(0,8)}..., got ${actual.slice(0,8)}...)`);
+        } catch { /* md5 check failed, re-download */ }
+      }
+
+      if (!exists || isEmpty || !md5Ok) {
         const url = `${entry.url}/${f}`;
         addLog(`Downloading ${key}/${f}...`);
         onProgress(key, 0);
