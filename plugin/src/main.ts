@@ -890,8 +890,9 @@ export default class VermilionVoicePlugin extends Plugin {
       this.addLog(`[config] failed to load settings.json: ${e.message}`);
     }
 
-    // Sync UI settings into appConfig
+    // Sync UI settings into appConfig and persist to keep settings.json in sync
     this.syncUiToAppConfig();
+    this.saveAppConfig();
   }
 
   /** Sync UI settings (this.settings) into appConfig and rebuild TextProcessor/VadConfig. */
