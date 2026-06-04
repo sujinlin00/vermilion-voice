@@ -32,7 +32,7 @@ async function ensureFlacModule(): Promise<FlacModule> {
     // Load flac.js at runtime (not bundled by esbuild, avoids import.meta.url issue)
     // Use FlacEncoder.pluginDir if set, fallback to __dirname
     const baseDir = (FlacEncoder as any).pluginDir || __dirname;
-    const libPath = path.join(baseDir, 'lib', 'flac.js');
+    const libPath = path.join(baseDir, 'flac.js');
     let code = fs.readFileSync(libPath, 'utf-8');
     // Patch import.meta.url — not available in new Function() context, and unused (WASM is inlined)
     code = code.replace('import.meta.url', 'undefined');

@@ -48,13 +48,11 @@ if (existsSync(DEPLOY_DIR)) {
       copyFileSync(src, join(DEPLOY_DIR, f));
     }
   }
-  // Deploy lib/ runtime files (flac.js loaded at runtime, not bundled)
-  const libDir = join(DEPLOY_DIR, 'lib');
-  try { mkdirSync(libDir, { recursive: true }); } catch {}
+  // Deploy runtime files (flac.js loaded at runtime, not bundled)
   for (const f of ['flac.js']) {
     const src = join(__dirname, 'lib', f);
     if (existsSync(src)) {
-      copyFileSync(src, join(libDir, f));
+      copyFileSync(src, join(DEPLOY_DIR, f));
     }
   }
   console.log(`[vermilion-voice] Deployed to ${DEPLOY_DIR}`);
