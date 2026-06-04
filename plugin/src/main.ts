@@ -34,43 +34,56 @@ function computeMD5(filePath: string, fs: any): string {
   return crypto.createHash('md5').update(buf).digest('hex');
 }
 
-/** Download a single file with byte-level progress via fetch + ReadableStream. */
-async function downloadWithProgress(
+/** Download a single file with byte-level progress via https.get. */
+function downloadWithProgress(
   url: string,
   dest: string,
   fs: any,
   onChunk: (bytesReceived: number, totalBytes: number) => void,
 ): Promise<void> {
-  const dir = dest.replace(/[/\\][^/\\]*$/, '');
-  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  return new Promise<void>((resolve, reject) => {
+    const dir = dest.replace(/[/\\][^/\\]*$/, '');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 
-  const res = await fetch(url, { headers: { 'User-Agent': 'VermilionVoice/0.1.0' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const https = require('https');
+    https.get(url, { headers: { 'User-Agent': 'VermilionVoice/0.1.0' } }, (res: any) => {
+      // Follow redirects
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        downloadWithProgress(res.headers.location, dest, fs, onChunk).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
 
-  const total = Number(res.headers.get('content-length') || 0);
-  const reader = res.body!.getReader();
-  const chunks: Uint8Array[] = [];
-  let received = 0;
+      const total = Number(res.headers['content-length'] || 0);
+      const chunks: Buffer[] = [];
+      let received = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
-    onChunk(received, total);
-  }
+      res.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+        received += chunk.length;
+        onChunk(received, total);
+      });
 
-  // Assemble and write to disk
-  const buf = new Uint8Array(received);
-  let offset = 0;
-  for (const chunk of chunks) { buf.set(chunk, offset); offset += chunk.length; }
-  fs.writeFileSync(dest, Buffer.from(buf));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        fs.writeFileSync(dest, buf);
+        // Compute and save MD5
+        try {
+          const md5 = computeMD5(dest, fs);
+          fs.writeFileSync(dest + '.md5', md5, 'utf-8');
+        } catch { /* ignore */ }
+        resolve();
+      });
 
-  // Compute and save MD5
-  try {
-    const md5 = computeMD5(dest, fs);
-    fs.writeFileSync(dest + '.md5', md5, 'utf-8');
-  } catch { /* ignore */ }
+      res.on('error', (e: any) => {
+        try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch {}
+        reject(e);
+      });
+    }).on('error', (e: any) => reject(e));
+  });
 }
 
 /** Check if a model file exists and has valid MD5. */
@@ -86,12 +99,15 @@ function isModelValid(dest: string, fs: any): boolean {
   } catch { return false; }
 }
 
-type ModelProgress = Record<string, number>; // key → 0~100
+type ModelProgress = Record<string, number>; // key → 0~100, or bytes if < 0
 
-/** Format combined progress string: "vad:50%|asr:30%|punc:10%" */
+/** Format combined progress string: "vad:50%|asr:1.2MB|punc:0%" */
 function formatProgress(progress: ModelProgress): string {
   return Object.entries(progress)
-    .map(([k, v]) => `${k}:${v}%`)
+    .map(([k, v]) => {
+      if (v < 0) return `${k}:${(-v / 1024 / 1024).toFixed(1)}MB`; // negative = bytes received
+      return `${k}:${v}%`;
+    })
     .join('|');
 }
 
@@ -152,27 +168,21 @@ async function ensureModels(
 
   // Download each model group in parallel
   await Promise.all(tasks.map(async ({ key, files }) => {
-    let totalBytes = 0;
     let downloadedBytes = 0;
-
-    // First pass: get total size for this model group
-    for (const { url, dest } of files) {
-      try {
-        const res = await fetch(url, { method: 'HEAD', headers: { 'User-Agent': 'VermilionVoice/0.1.0' } });
-        totalBytes += Number(res.headers.get('content-length') || 0);
-      } catch { /* ignore, progress will be approximate */ }
-    }
 
     // Download files sequentially within each model group
     for (const { url, dest } of files) {
       const fname = dest.replace(/.*\//, '');
       addLog(`Downloading ${key}/${fname}...`);
 
-      await downloadWithProgress(url, dest, fs, (received, _total) => {
-        const modelPct = totalBytes > 0
-          ? Math.round(((downloadedBytes + received) / totalBytes) * 100)
-          : 0;
-        progress[key] = Math.min(modelPct, 99);
+      await downloadWithProgress(url, dest, fs, (received, total) => {
+        if (total > 0) {
+          // Known total: show percentage
+          progress[key] = Math.min(Math.round(((downloadedBytes + received) / total) * 100), 99);
+        } else {
+          // Unknown total: show negative bytes (formatProgress converts to MB)
+          progress[key] = -(downloadedBytes + received);
+        }
         onProgress(formatProgress(progress));
       });
 
