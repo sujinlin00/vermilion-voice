@@ -938,6 +938,26 @@ export default class VermilionVoicePlugin extends Plugin {
     const workletCode = fs.readFileSync(this.pluginDir + '/mic_worklet.js', 'utf-8');
     const audioCfg = this.appConfig?.audio_capture;
 
+    // Flush and reset TextProcessor so next output starts as new paragraph
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+    const view = leaves.length > 0 ? leaves[0].view as VermilionVoiceView : null;
+    const parts = this.textProc.flush(Date.now());
+    if (view) {
+      for (const p of parts) {
+        if (p.text) {
+          view.addSegment(p.text, 0, 0);
+          if (this.settings.outputToNote) this.appendToNote(p.text);
+        }
+      }
+    }
+    this.textProc.reset();
+
+    // Reset VAD state
+    if (this.vadWorker) {
+      this.vadWorker.postMessage({ type: 'stop' });
+      this.vadWorker.postMessage({ type: 'start' });
+    }
+
     // Stop current capture
     this.audioCaptureMgr.stop();
     this.audioCaptureMgr = null;
