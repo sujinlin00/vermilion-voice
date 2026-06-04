@@ -28,7 +28,7 @@ function downloadFile(url: string, dest: string, fs: any): Promise<void> {
     const dir = dest.replace(/[/\\][^/\\]*$/, '');
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
     const file = fs.createWriteStream(dest);
-    require('https').get(url, (res: any) => {
+    require('https').get(url, { headers: { 'User-Agent': 'VermilionVoice/0.1.0' } }, (res: any) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
         file.close();
         downloadFile(res.headers.location, dest, fs).then(resolve, reject);
