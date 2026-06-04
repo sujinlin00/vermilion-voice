@@ -425,7 +425,7 @@ export default class VermilionVoicePlugin extends Plugin {
     this.addLog('STOP requested');
     // Stop tick timer
     if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = 0; }
-    // Flush text processor
+    // Flush text processor (sets needsSessionNewline for next session)
     const parts = this.textProc.flush(Date.now());
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
     const view = leaves.length > 0 ? leaves[0].view as VermilionVoiceView : null;
@@ -435,7 +435,6 @@ export default class VermilionVoicePlugin extends Plugin {
         if (this.settings.outputToNote) this.appendToNote(p.text);
       }
     }
-    this.textProc.reset();
     if (this.puncTimer) { clearTimeout(this.puncTimer); this.puncTimer = 0; }
     this.puncPending = null;
     this.pendingSegments = [];
@@ -467,10 +466,13 @@ export default class VermilionVoicePlugin extends Plugin {
       this.vadWorker.postMessage({ type: 'stop' });
     }
 
-    // Wait for ASR queue to drain
+    // Wait for ASR queue to drain (segments during drain go to current session)
     if (this.asrWorker) {
       await this.waitForAsrDrain();
     }
+
+    // Reset TextProcessor AFTER drain — preserves needsSessionNewline for next session
+    this.textProc.reset();
 
     // Don't terminate workers — keep them alive for next start
     // Release after 5 minutes if not restarted
@@ -938,7 +940,7 @@ export default class VermilionVoicePlugin extends Plugin {
     const workletCode = fs.readFileSync(this.pluginDir + '/mic_worklet.js', 'utf-8');
     const audioCfg = this.appConfig?.audio_capture;
 
-    // Flush and reset TextProcessor, preserving hasOutput for proper \n\n formatting
+    // Flush and reset TextProcessor (flush sets needsSessionNewline for next session)
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
     const view = leaves.length > 0 ? leaves[0].view as VermilionVoiceView : null;
     const parts = this.textProc.flush(Date.now());
@@ -950,8 +952,6 @@ export default class VermilionVoicePlugin extends Plugin {
         }
       }
     }
-    // Reset TextProcessor — hasOutput defaults to false
-    // First output after restart will get [HH:MM:SS] prefix naturally
     this.textProc.reset();
 
     // Reset VAD state
@@ -1308,9 +1308,11 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
           if (v === 'mic') {
             audioCfg.mic_enabled = true;
             audioCfg.output_enabled = false;
+            audioCfg.mix_mode = undefined;
           } else if (v === 'output') {
             audioCfg.mic_enabled = false;
             audioCfg.output_enabled = true;
+            audioCfg.mix_mode = undefined;
           } else {
             audioCfg.mic_enabled = true;
             audioCfg.output_enabled = true;

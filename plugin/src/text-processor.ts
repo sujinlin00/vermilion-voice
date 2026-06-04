@@ -30,6 +30,7 @@ export class TextProcessor {
   private needsNewline = false;
   private isFirstLine = true;
   private hasOutput = false;
+  private needsSessionNewline = false;   // marks session boundary for \n\n between sessions
   private prevSegmentTail = '';
   private lastSegmentEnd = 0;        // ms
   private recentOutputs: Array<{ text: string; time: number }> = [];
@@ -156,6 +157,8 @@ export class TextProcessor {
     this.buffer = '';
     this.sentPos = 0;
     this.needsNewline = false;
+    // Mark session boundary: next session's first segment needs \n\n
+    this.needsSessionNewline = true;
     return results;
   }
 
@@ -213,7 +216,7 @@ export class TextProcessor {
   /** Set hasOutput flag (for restart scenarios where we want \n\n on next output). */
   setHasOutput(v: boolean) { this.hasOutput = v; }
 
-  reset() {
+  reset(preserveSessionNewline = true) {
     this.buffer = '';
     this.sentPos = 0;
     this.needsNewline = false;
@@ -224,6 +227,8 @@ export class TextProcessor {
     this.recentOutputs = [];
     this.carryBuffer = '';
     this.header = '';
+    // Preserve needsSessionNewline by default (reset during stop keeps it for next session)
+    if (!preserveSessionNewline) this.needsSessionNewline = false;
   }
 
   // ---- Preprocess ----
@@ -311,6 +316,13 @@ export class TextProcessor {
 
     text = text.trim();
     if (!text) return [];
+
+    // Session boundary: force \n\n + time header for first output of new session
+    if (this.needsSessionNewline) {
+      this.needsSessionNewline = false;
+      this.hasOutput = true;
+      return [{ text: `\n\n${timeHeader} ${text}`, status: 'newline' }];
+    }
 
     if (status === 'newline') {
       if (!this.hasOutput) {
