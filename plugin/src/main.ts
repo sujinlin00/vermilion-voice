@@ -8,6 +8,11 @@ import { FlacEncoder } from './flac-encoder';
 import { AudioCaptureManager } from './audio-capture';
 import { t, setLanguage } from './i18n';
 
+// Debug logging — set to false for release builds
+const DEBUG = true;
+const debugLog = (...args: any[]) => { if (DEBUG) console.log('[VV]', ...args); };
+const debugErr = (...args: any[]) => { if (DEBUG) console.error('[VV]', ...args); };
+
 // CDN URL for ONNX Runtime WASM (wasm-only bundle, ~11MB)
 const ORT_WASM_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort-wasm-simd-threaded.wasm';
 
@@ -162,19 +167,27 @@ export default class VermilionVoicePlugin extends Plugin {
 
   private addLog(msg: string) {
     const ts = Date.now();
-    this.logBuf.push(`[${ts}] ${msg}`);
+    const entry = `[${ts}] ${msg}`;
+    this.logBuf.push(entry);
+    debugLog(msg);
     if (this.logBuf.length > 500) this.logBuf = this.logBuf.slice(-300);
   }
 
-  private async flushLog(reason: string) {
-    console.log(`[VermilionVoice] flushLog(${reason}) bufLen=${this.logBuf.length}`, this.logBuf.slice(0, 5));
+  private flushLog(reason: string) {
     if (this.logBuf.length === 0) return;
     try {
-      const text = `# Vermilion Voice Debug Log — ${reason}\n\n` +
-        this.logBuf.map(l => `- ${l}`).join('\n');
+      const now = new Date();
+      const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+      const header = `\n\n## ${ts} — ${reason}\n\n`;
+      const body = this.logBuf.map(l => `- ${l}`).join('\n');
       const file = this.pluginDir.replace(/\\/g, '/') + '/debug-log.md';
       const fs: any = (window as any).require?.('fs') || require('fs');
-      fs.writeFileSync(file, text, 'utf-8');
+      // Append mode: create file with header if it doesn't exist, otherwise append
+      if (!fs.existsSync(file)) {
+        fs.writeFileSync(file, `# Vermilion Voice Debug Log\n${header}${body}`, 'utf-8');
+      } else {
+        fs.appendFileSync(file, `${header}${body}`, 'utf-8');
+      }
       this.logBuf = [];
     } catch { /* can't write, ignore */ }
   }
@@ -230,7 +243,7 @@ export default class VermilionVoicePlugin extends Plugin {
   // ---- Recognition lifecycle ----
 
   async startRecognition(view: VermilionVoiceView) {
-    console.log('[VermilionVoice] startRecognition called');
+    debugLog('startRecognition called');
     try {
       this.addLog('START requested');
       const fs: any = (window as any).require?.('fs') || require('fs');
@@ -290,10 +303,12 @@ export default class VermilionVoicePlugin extends Plugin {
       this.addLog('[step] starting mic...');
       await this.startMic(view);
       this.addLog('[step] startMic done');
+      this.flushLog('startRecognition-ok');
     } catch (e: any) {
       this.addLog(`ERROR: ${e.message}\n${e.stack}`);
-      console.error('[VermilionVoice] startRecognition failed:', e);
+      debugErr('startRecognition failed:', e);
       view.setStatus('error', e.message || t('status.startupFailed'));
+      this.flushLog('startRecognition-error');
       this.stopRecognition();
     }
   }
@@ -445,7 +460,7 @@ export default class VermilionVoicePlugin extends Plugin {
     this.vadWorker = new Worker(URL.createObjectURL(vadBlob), { type: 'module' });
 
     this.vadWorker.onerror = (e) => {
-      console.error('[VermilionVoice] VAD Worker error:', e.message);
+      debugErr('VAD Worker error:', e.message);
       view.setStatus('error', 'VAD Worker: ' + e.message);
     };
 
@@ -455,8 +470,8 @@ export default class VermilionVoicePlugin extends Plugin {
 
     // Init VAD worker (slice copies — each worker gets its own ArrayBuffer)
     const vadBuf = vadModelBuf.slice(0);
-    console.log(`[VermilionVoice] VAD postMessage: modelBuf=${vadBuf.byteLength} wasm=${simdWasm.byteLength}`);
-    console.log(`[VermilionVoice] VAD config: sensitivity=${this.settings.vadSensitivity} vadCfg=`, JSON.stringify(this.vadCfg));
+    debugLog(`VAD postMessage: modelBuf=${vadBuf.byteLength} wasm=${simdWasm.byteLength}`);
+    debugLog(`VAD config: sensitivity=${this.settings.vadSensitivity} vadCfg=`, JSON.stringify(this.vadCfg));
     this.vadWorker.postMessage({
       type: 'init',
       config: {
@@ -475,7 +490,7 @@ export default class VermilionVoicePlugin extends Plugin {
     this.asrWorker = new Worker(URL.createObjectURL(asrBlob), { type: 'module' });
 
     this.asrWorker.onerror = (e) => {
-      console.error('[VermilionVoice] ASR Worker error:', e.message);
+      debugErr('ASR Worker error:', e.message);
       view.setStatus('error', 'ASR Worker: ' + e.message);
     };
 
@@ -486,7 +501,7 @@ export default class VermilionVoicePlugin extends Plugin {
     // Init ASR worker
     const asrBuf = asrModelBuf.slice(0);
     const puncBuf = puncModelBuf.slice(0);
-    console.log(`[VermilionVoice] ASR postMessage: asrBuf=${asrBuf.byteLength} puncBuf=${puncBuf.byteLength} wasm=${simdWasm.byteLength}`);
+    debugLog(`ASR postMessage: asrBuf=${asrBuf.byteLength} puncBuf=${puncBuf.byteLength} wasm=${simdWasm.byteLength}`);
     this.asrWorker.postMessage({
       type: 'init',
       config: {
@@ -505,6 +520,8 @@ export default class VermilionVoicePlugin extends Plugin {
         if (this.vadReady && this.asrReady) { clearInterval(iv); resolve(); }
       }, 100);
     });
+    this.addLog('[workers] both workers ready');
+    this.flushLog('createWorkers-ok');
   }
 
   // ---- Message routing ----
@@ -1256,7 +1273,7 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
         selectEl.appendChild(o);
       }
     } catch (e) {
-      console.warn('[VermilionVoice] Cannot enumerate audio devices:', e);
+      debugLog('Cannot enumerate audio devices:', e);
     }
   }
 }
