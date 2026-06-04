@@ -74,9 +74,6 @@ async function init(config: import('./types').VadInitConfig) {
 
   console.log(`[VAD] init: maxSpeechFrames=${maxSpeechFrames} speechStartFrames=${speechStartFrames} speechEndFrames=${speechEndFrames} preRollMs=${preRollMs} postRollMs=${postRollMs} forcedCutSil=${forcedCutSilenceFrames}`);
 
-  // Report config to main thread for logging
-  post({ type: 'error', message: `[VAD config] maxSpeechFrames=${maxSpeechFrames} forcedCutSil=${forcedCutSilenceFrames} speechEndFrames=${speechEndFrames}` });
-
   post({ type: 'progress', phase: 'ort', pct: 100 });
 
   ort.env.wasm.wasmPaths = 'https://vermilion-voice.local/';
