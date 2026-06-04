@@ -215,6 +215,8 @@ export class TextProcessor {
 
   /** Set hasOutput flag (for restart scenarios where we want \n\n on next output). */
   setHasOutput(v: boolean) { this.hasOutput = v; }
+  getNeedsSessionNewline(): boolean { return this.needsSessionNewline; }
+  setNeedsSessionNewline(v: boolean) { this.needsSessionNewline = v; }
 
   reset(preserveSessionNewline = true) {
     this.buffer = '';

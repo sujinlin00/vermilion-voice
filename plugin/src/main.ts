@@ -1042,6 +1042,8 @@ export default class VermilionVoicePlugin extends Plugin {
     vad.max_speech_duration = s.maxSpeechDuration;
     // outputInterval: only in UI, not in settings.json
 
+    // Preserve needsSessionNewline from old TextProcessor (for session boundary across config changes)
+    const oldNeedsNewline = this.textProc.getNeedsSessionNewline();
     this.textProc = new TextProcessor({
       silence_threshold: tp.silence_threshold,
       max_line_chars: tp.max_line_chars,
@@ -1049,6 +1051,7 @@ export default class VermilionVoicePlugin extends Plugin {
       newline_punctuation: tp.newline_punctuation,
       carry_punctuation: tp.carry_punctuation,
     });
+    if (oldNeedsNewline) this.textProc.setNeedsSessionNewline(true);
   }
 
   /** Write current appConfig to settings.json. */
@@ -1235,7 +1238,7 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
         d.addOption('2.0', '2.0s');
         d.addOption('2.5', s.language === 'en' ? '2.5s (default)' : '2.5 秒（默认）');
         d.addOption('3.0', s.language === 'en' ? '3.0s (loose)' : '3.0 秒（宽松）');
-        d.setValue(String(s.silenceThreshold));
+        d.setValue(Number(s.silenceThreshold).toFixed(1));
         d.onChange(async (v) => {
           this.plugin.settings.silenceThreshold = Number(v);
           await this.plugin.saveSettings();
