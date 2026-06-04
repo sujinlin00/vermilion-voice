@@ -6,6 +6,7 @@ import type { VadToMain, AsrToMain } from './types';
 import { TextProcessor } from './text-processor';
 import { FlacEncoder } from './flac-encoder';
 import { AudioCaptureManager } from './audio-capture';
+import { t, setLanguage } from './i18n';
 
 // CDN URL for ONNX Runtime WASM (wasm-only bundle, ~11MB)
 const ORT_WASM_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort-wasm-simd-threaded.wasm';
@@ -113,6 +114,7 @@ async function ensureWasmFile(wasmPath: string, addLog: (msg: string) => void): 
 }
 
 const DEFAULT_SETTINGS: VermilionVoiceSettings = {
+  language: 'zh',
   modelBasePath: '',
   asrModelTier: 'standard',
   outputToNote: false,
@@ -182,6 +184,7 @@ export default class VermilionVoicePlugin extends Plugin {
     this.pluginDir = vaultRoot + '/.obsidian/plugins/vermilion-voice';
 
     await this.loadSettings();
+    setLanguage(this.settings.language);
     this.loadAppConfig();
 
     this.registerView(VIEW_TYPE, (leaf) => {
@@ -277,7 +280,7 @@ export default class VermilionVoicePlugin extends Plugin {
       // Reuse existing workers if still alive, otherwise create new ones
       if (this.vadReady && this.asrReady && this.vadWorker && this.asrWorker) {
         this.addLog('[step] reusing existing workers');
-        view.setStatus('ready', '模型就绪 — 开始识别');
+        view.setStatus('ready', t('status.ready'));
         this.vadWorker.postMessage({ type: 'start' });
         this.addLog('START sent to VAD (reuse)');
       } else {
@@ -290,7 +293,7 @@ export default class VermilionVoicePlugin extends Plugin {
     } catch (e: any) {
       this.addLog(`ERROR: ${e.message}\n${e.stack}`);
       console.error('[VermilionVoice] startRecognition failed:', e);
-      view.setStatus('error', e.message || '启动失败');
+      view.setStatus('error', e.message || t('status.startupFailed'));
       this.stopRecognition();
     }
   }
@@ -513,14 +516,14 @@ export default class VermilionVoicePlugin extends Plugin {
         this.vadReady = true;
         this.addLog(`VAD ready, asrReady=${this.asrReady}`);
         if (this.asrReady) {
-          view.setStatus('ready', '模型就绪 — 开始识别');
+          view.setStatus('ready', t('status.ready'));
           this.vadWorker!.postMessage({ type: 'start' });
           this.addLog('START sent to VAD');
         }
         break;
       case 'status':
-        if (msg.status === 'listening') view.setStatus('recording', '监听中...');
-        else if (msg.status === 'speech') view.setStatus('recording', '说话中...');
+        if (msg.status === 'listening') view.setStatus('recording', t('status.listening'));
+        else if (msg.status === 'speech') view.setStatus('recording', t('status.speaking'));
         break;
       case 'segment':
         this.addLog(`VAD segment ${(msg.startMs/1000).toFixed(1)}s-${(msg.endMs/1000).toFixed(1)}s`);
@@ -543,14 +546,14 @@ export default class VermilionVoicePlugin extends Plugin {
         this.asrReady = true;
         this.addLog(`ASR ready, vadReady=${this.vadReady}`);
         if (this.vadReady) {
-          view.setStatus('ready', '模型就绪 — 开始识别');
+          view.setStatus('ready', t('status.ready'));
           this.vadWorker!.postMessage({ type: 'start' });
           this.addLog('START sent to VAD');
         }
         break;
       case 'status':
-        if (msg.status === 'asr') view.setStatus('processing', '识别中...');
-        else if (msg.status === 'punc') view.setStatus('processing', '标点中...');
+        if (msg.status === 'asr') view.setStatus('processing', t('status.recording'));
+        else if (msg.status === 'punc') view.setStatus('processing', t('status.punc'));
         break;
       case 'result': {
         this.addLog(`ASR result: "${msg.text.slice(0, 40)}..." reason=${msg.reason || 'silence'}`);
@@ -923,17 +926,33 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     const s = this.plugin.settings;
     containerEl.empty();
-    containerEl.createEl('h2', { text: 'Vermilion Voice Settings' });
+    containerEl.createEl('h2', { text: t('settings.title') });
 
-    // ═══ 模型选择 ═══
-    this.sectionHeading(containerEl, '模型选择');
+    // ═══ Language (first setting) ═══
+    new Setting(containerEl)
+      .setName(t('settings.language'))
+      .setDesc(t('settings.language.desc'))
+      .addDropdown(d => {
+        d.addOption('zh', '中文');
+        d.addOption('en', 'English');
+        d.setValue(s.language);
+        d.onChange(async (v) => {
+          this.plugin.settings.language = v as 'zh' | 'en';
+          await this.plugin.saveSettings();
+          setLanguage(v as 'zh' | 'en');
+          this.display(); // re-render with new language
+        });
+      });
+
+    // ═══ Model ═══
+    this.sectionHeading(containerEl, t('settings.model'));
 
     new Setting(containerEl)
-      .setName('推理精度')
-      .setDesc('标准：ONNX WASM CPU 本地推理，当前可用 | 高性能：ONNX WebGPU 推理（计划支持）')
+      .setName(t('settings.inference'))
+      .setDesc(t('settings.inference.desc'))
       .addDropdown(d => {
-        d.addOption('standard', '标准 (ONNX WASM)');
-        d.addOption('performance', '高性能 (ONNX WebGPU)');
+        d.addOption('standard', t('settings.inference.standard'));
+        d.addOption('performance', t('settings.inference.performance'));
         d.setValue(s.asrModelTier);
         d.onChange(async (v) => {
           this.plugin.settings.asrModelTier = v as 'standard' | 'performance';
@@ -942,25 +961,25 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('模型目录')
-      .setDesc('FunASR 模型的本地根目录，含 vad/, asr/, punc/ 子目录。留空则使用插件内置 models.json 下载到 lib/models/')
+      .setName(t('settings.modelDir'))
+      .setDesc(t('settings.modelDir.desc'))
       .addText(text => text
-        .setPlaceholder('留空使用默认下载目录')
+        .setPlaceholder(t('settings.modelDir.placeholder'))
         .setValue(s.modelBasePath)
         .onChange(async (v) => {
           this.plugin.settings.modelBasePath = v;
           await this.plugin.saveSettings();
         }));
 
-    // ═══ 输出设置 ═══
-    this.sectionHeading(containerEl, '输出设置');
+    // ═══ Output ═══
+    this.sectionHeading(containerEl, t('settings.output'));
 
     let outputFolderText: any;
     let recordingFolderText: any;
 
     new Setting(containerEl)
-      .setName('输出至文档')
-      .setDesc('开启后将转录文本写入笔记文件，关闭后仅在面板中显示')
+      .setName(t('settings.outputToNote'))
+      .setDesc(t('settings.outputToNote.desc'))
       .addToggle(toggle => {
         toggle.setValue(s.outputToNote);
         toggle.onChange(async (v) => {
@@ -970,9 +989,9 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
         });
       });
 
-    const outputFolderSetting = new Setting(containerEl)
-      .setName('转录文本路径')
-      .setDesc('转录文本的输出路径（相对于保险库根目录）')
+    new Setting(containerEl)
+      .setName(t('settings.outputFolder'))
+      .setDesc(t('settings.outputFolder.desc'))
       .setClass('vermilion-voice-setting-indent')
       .addText(text => {
         outputFolderText = text;
@@ -986,8 +1005,8 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
     this.setDependentDisabled(outputFolderText, !s.outputToNote);
 
     new Setting(containerEl)
-      .setName('保存录音文件')
-      .setDesc('录音结束后保存音频文件')
+      .setName(t('settings.saveAudio'))
+      .setDesc(t('settings.saveAudio.desc'))
       .addToggle(toggle => {
         toggle.setValue(s.saveAudio);
         toggle.onChange(async (v) => {
@@ -997,9 +1016,9 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
         });
       });
 
-    const recordingFolderSetting = new Setting(containerEl)
-      .setName('录音文件路径')
-      .setDesc('录音文件的输出路径（相对于保险库根目录）')
+    new Setting(containerEl)
+      .setName(t('settings.recordingFolder'))
+      .setDesc(t('settings.recordingFolder.desc'))
       .setClass('vermilion-voice-setting-indent')
       .addText(text => {
         recordingFolderText = text;
@@ -1013,8 +1032,8 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
     this.setDependentDisabled(recordingFolderText, !s.saveAudio);
 
     new Setting(containerEl)
-      .setName('停止时进行二次识别')
-      .setDesc('录音结束后使用更高精度模型重新识别整段音频，输出完整文本')
+      .setName(t('settings.postProcess'))
+      .setDesc(t('settings.postProcess.desc'))
       .addToggle(toggle => {
         toggle.setValue(s.postProcessEnabled);
         toggle.onChange(async (v) => {
@@ -1023,16 +1042,16 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
         });
       });
 
-    // ═══ 识别粒度 ═══
-    this.sectionHeading(containerEl, '识别粒度');
+    // ═══ Recognition ═══
+    this.sectionHeading(containerEl, t('settings.granularity'));
 
     new Setting(containerEl)
-      .setName('语音分段灵敏度')
-      .setDesc('VAD 切分灵敏度：高 = 短句快切，低 = 长句慢切（需重新开始识别生效）')
+      .setName(t('settings.vadSensitivity'))
+      .setDesc(t('settings.vadSensitivity.desc'))
       .addDropdown(d => {
-        d.addOption('high', '高（短句快切）');
-        d.addOption('medium', '中（默认）');
-        d.addOption('low', '低（长句慢切）');
+        d.addOption('high', t('settings.vadSensitivity.high'));
+        d.addOption('medium', t('settings.vadSensitivity.medium'));
+        d.addOption('low', t('settings.vadSensitivity.low'));
         d.setValue(s.vadSensitivity);
         d.onChange(async (v) => {
           this.plugin.settings.vadSensitivity = v as 'low' | 'medium' | 'high';
@@ -1043,12 +1062,12 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('文本推送间隔')
-      .setDesc('转录文本输出到笔记的刷新频率')
+      .setName(t('settings.outputInterval'))
+      .setDesc(t('settings.outputInterval.desc'))
       .addDropdown(d => {
-        d.addOption('1000', '1 秒（实时）');
-        d.addOption('3000', '3 秒（默认）');
-        d.addOption('5000', '5 秒（省流）');
+        d.addOption('1000', t('settings.outputInterval.1s'));
+        d.addOption('3000', t('settings.outputInterval.3s'));
+        d.addOption('5000', t('settings.outputInterval.5s'));
         d.setValue(String(s.outputInterval));
         d.onChange(async (v) => {
           this.plugin.settings.outputInterval = Number(v);
@@ -1057,13 +1076,13 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('段落分隔静音')
-      .setDesc('两个语音片段之间静音超过此值时输出换行')
+      .setName(t('settings.silenceThreshold'))
+      .setDesc(t('settings.silenceThreshold.desc'))
       .addDropdown(d => {
-        d.addOption('1.5', '1.5 秒（紧凑）');
-        d.addOption('2.0', '2.0 秒');
-        d.addOption('2.5', '2.5 秒（默认）');
-        d.addOption('3.0', '3.0 秒（宽松）');
+        d.addOption('1.5', s.language === 'en' ? '1.5s (compact)' : '1.5 秒（紧凑）');
+        d.addOption('2.0', '2.0s');
+        d.addOption('2.5', s.language === 'en' ? '2.5s (default)' : '2.5 秒（默认）');
+        d.addOption('3.0', s.language === 'en' ? '3.0s (loose)' : '3.0 秒（宽松）');
         d.setValue(String(s.silenceThreshold));
         d.onChange(async (v) => {
           this.plugin.settings.silenceThreshold = Number(v);
@@ -1074,13 +1093,13 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('单行字数上限')
-      .setDesc('单行超过此字数后遇到标点自动换行')
+      .setName(t('settings.maxLineChars'))
+      .setDesc(t('settings.maxLineChars.desc'))
       .addDropdown(d => {
-        d.addOption('60', '60 字');
-        d.addOption('90', '90 字（默认）');
-        d.addOption('120', '120 字');
-        d.addOption('0', '不限制');
+        d.addOption('60', '60');
+        d.addOption('90', s.language === 'en' ? '90 (default)' : '90（默认）');
+        d.addOption('120', '120');
+        d.addOption('0', t('settings.maxLineChars.unlimited'));
         d.setValue(String(s.maxLineChars));
         d.onChange(async (v) => {
           this.plugin.settings.maxLineChars = Number(v);
@@ -1091,13 +1110,13 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName('最长语音分段')
-      .setDesc('单段语音超过此值自动切段（需重新开始识别生效）')
+      .setName(t('settings.maxSpeechDuration'))
+      .setDesc(t('settings.maxSpeechDuration.desc'))
       .addDropdown(d => {
-        d.addOption('3', '3 秒（短段）');
-        d.addOption('4', '4 秒（默认）');
-        d.addOption('6', '6 秒（长段）');
-        d.addOption('8', '8 秒（超长段）');
+        d.addOption('3', s.language === 'en' ? '3s (short)' : '3 秒（短段）');
+        d.addOption('4', s.language === 'en' ? '4s (default)' : '4 秒（默认）');
+        d.addOption('6', s.language === 'en' ? '6s (long)' : '6 秒（长段）');
+        d.addOption('8', s.language === 'en' ? '8s (extra long)' : '8 秒（超长段）');
         d.setValue(String(s.maxSpeechDuration));
         d.onChange(async (v) => {
           this.plugin.settings.maxSpeechDuration = Number(v);
@@ -1107,12 +1126,11 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
         });
       });
 
-    // ═══ 音频设置 ═══
-    this.sectionHeading(containerEl, '音频设置');
+    // ═══ Audio ═══
+    this.sectionHeading(containerEl, t('settings.audio'));
 
     const audioCfg = this.plugin.appConfig?.audio_capture || { mic_enabled: true, output_enabled: false, output_source: 'system', mix_mode: 'merge' };
 
-    // 1. Audio capture mode (first)
     const updateMicEnabled = () => {
       const disabled = audioCfg.output_enabled && !audioCfg.mic_enabled;
       if (audioSelectEl) audioSelectEl.disabled = disabled;
@@ -1124,12 +1142,12 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
     };
 
     new Setting(containerEl)
-      .setName('音频采集模式')
-      .setDesc('选择音频来源（切换后立即生效）')
+      .setName(t('settings.audioMode'))
+      .setDesc(t('settings.audioMode.desc'))
       .addDropdown(d => {
-        d.addOption('merge', '合并（推荐）');
-        d.addOption('mic', '仅麦克风');
-        d.addOption('output', '仅桌面音频');
+        d.addOption('merge', t('settings.audioMode.merge'));
+        d.addOption('mic', t('settings.audioMode.mic'));
+        d.addOption('output', t('settings.audioMode.output'));
         const current = audioCfg.mix_mode === 'merge' && audioCfg.output_enabled ? 'merge'
           : audioCfg.output_enabled && !audioCfg.mic_enabled ? 'output'
           : 'mic';
@@ -1152,25 +1170,24 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
           if (this.plugin.audioCaptureMgr) {
             try {
               await this.plugin.restartAudioCapture();
-              new Notice('音频采集模式已切换');
+              new Notice(t('notice.audioModeSwitched'));
             } catch (e: any) {
-              new Notice('音频切换失败: ' + e.message);
+              new Notice(t('notice.audioModeFailed') + ': ' + e.message);
             }
           } else {
-            new Notice('下次开始识别时生效');
+            new Notice(t('notice.audioModeNextStart'));
           }
         });
       });
 
-    // 2. Mic device (second, grayed out when only desktop audio)
     let audioSelectEl: HTMLSelectElement;
     let micSettingRow: HTMLElement;
 
     const audioSetting = new Setting(containerEl)
-      .setName('麦克风设备')
-      .setDesc('选择录音使用的麦克风。点击刷新获取设备列表（需授权麦克风权限）')
+      .setName(t('settings.micDevice'))
+      .setDesc(t('settings.micDevice.desc'))
       .addDropdown(d => {
-        d.addOption('', '默认麦克风');
+        d.addOption('', t('settings.micDevice.default'));
         if (s.audioDevice) d.addOption(s.audioDevice, s.audioDevice);
         d.setValue(s.audioDevice);
         audioSelectEl = d.selectEl;
@@ -1185,7 +1202,7 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
 
     audioSetting.addExtraButton(btn => {
       btn.setIcon('refresh-cw');
-      btn.setTooltip('刷新设备列表');
+      btn.setTooltip(t('settings.micDevice.refresh'));
       btn.onClick(async () => {
         await this.refreshAudioDevices(audioSelectEl);
       });
@@ -1193,14 +1210,14 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
 
     this.refreshAudioDevices(audioSelectEl);
 
-    // ═══ 高级 ═══
-    this.sectionHeading(containerEl, '高级');
+    // ═══ Advanced ═══
+    this.sectionHeading(containerEl, t('settings.advanced'));
 
     new Setting(containerEl)
-      .setName('热词替换表')
-      .setDesc('JSON 格式: {"误识别词": "正确词", ...}')
+      .setName(t('settings.hotWords'))
+      .setDesc(t('settings.hotWords.desc'))
       .addTextArea(text => text
-        .setPlaceholder('{"电缆": "靛蓝", "云朵": "吲哚"}')
+        .setPlaceholder('{"电缆": "靛蓝", "cloud": "吲哚"}')
         .setValue(JSON.stringify(s.hotWords, null, 2))
         .onChange(async (v) => {
           try {
@@ -1244,7 +1261,7 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       selectEl.innerHTML = '';
       const opt = document.createElement('option');
       opt.value = '';
-      opt.textContent = '默认麦克风';
+      opt.textContent = t('settings.micDevice.default');
       selectEl.appendChild(opt);
       for (const d of inputs) {
         const o = document.createElement('option');

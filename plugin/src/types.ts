@@ -12,6 +12,9 @@ export interface PerfStats {
 }
 
 export interface VermilionVoiceSettings {
+  // General
+  language: 'zh' | 'en';
+
   // Model
   modelBasePath: string;
   asrModelTier: 'standard' | 'performance';
