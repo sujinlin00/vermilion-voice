@@ -950,9 +950,9 @@ export default class VermilionVoicePlugin extends Plugin {
         }
       }
     }
-    // Reset buffer state but keep hasOutput so next output gets \n\n prefix
+    // Reset TextProcessor — hasOutput defaults to false
+    // First output after restart will get [HH:MM:SS] prefix naturally
     this.textProc.reset();
-    this.textProc.setHasOutput(true);
 
     // Reset VAD state
     if (this.vadWorker) {
