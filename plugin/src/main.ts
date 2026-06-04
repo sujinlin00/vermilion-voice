@@ -34,43 +34,77 @@ function computeMD5(filePath: string, fs: any): string {
   return crypto.createHash('md5').update(buf).digest('hex');
 }
 
-function downloadFile(url: string, dest: string, fs: any): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const dir = dest.replace(/[/\\][^/\\]*$/, '');
-    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-    const file = fs.createWriteStream(dest);
-    const cleanup = () => { try { file.close(); if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch {} };
-    require('https').get(url, { headers: { 'User-Agent': 'VermilionVoice/0.1.0' } }, (res: any) => {
-      if (res.statusCode === 302 || res.statusCode === 301) {
-        cleanup();
-        downloadFile(res.headers.location, dest, fs).then(resolve, reject);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        cleanup();
-        reject(new Error(`HTTP ${res.statusCode}`));
-        return;
-      }
-      res.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        // Compute and save MD5 after successful download
-        try {
-          const md5 = computeMD5(dest, fs);
-          fs.writeFileSync(dest + '.md5', md5, 'utf-8');
-        } catch { /* ignore md5 errors */ }
-        resolve();
-      });
-      file.on('error', (e: any) => { cleanup(); reject(e); });
-    }).on('error', (e: any) => { cleanup(); reject(e); });
-  });
+/** Download a single file with byte-level progress via fetch + ReadableStream. */
+async function downloadWithProgress(
+  url: string,
+  dest: string,
+  fs: any,
+  onChunk: (bytesReceived: number, totalBytes: number) => void,
+): Promise<void> {
+  const dir = dest.replace(/[/\\][^/\\]*$/, '');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+
+  const res = await fetch(url, { headers: { 'User-Agent': 'VermilionVoice/0.1.0' } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const total = Number(res.headers.get('content-length') || 0);
+  const reader = res.body!.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    onChunk(received, total);
+  }
+
+  // Assemble and write to disk
+  const buf = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) { buf.set(chunk, offset); offset += chunk.length; }
+  fs.writeFileSync(dest, Buffer.from(buf));
+
+  // Compute and save MD5
+  try {
+    const md5 = computeMD5(dest, fs);
+    fs.writeFileSync(dest + '.md5', md5, 'utf-8');
+  } catch { /* ignore */ }
 }
 
+/** Check if a model file exists and has valid MD5. */
+function isModelValid(dest: string, fs: any): boolean {
+  if (!fs.existsSync(dest)) return false;
+  if (fs.statSync(dest).size === 0) return false;
+  const md5File = dest + '.md5';
+  if (!fs.existsSync(md5File)) return true; // no md5 recorded yet, trust the file
+  try {
+    const expected = fs.readFileSync(md5File, 'utf-8').trim();
+    const actual = computeMD5(dest, fs);
+    return expected === actual;
+  } catch { return false; }
+}
+
+type ModelProgress = Record<string, number>; // key → 0~100
+
+/** Format combined progress string: "vad:50%|asr:30%|punc:10%" */
+function formatProgress(progress: ModelProgress): string {
+  return Object.entries(progress)
+    .map(([k, v]) => `${k}:${v}%`)
+    .join('|');
+}
+
+/**
+ * Download all models in parallel with per-model progress tracking.
+ * Downloads each model's files sequentially, but models run concurrently.
+ * Reports combined progress via onProgress callback.
+ */
 async function ensureModels(
   modelsDir: string,
   modelsJsonPath: string,
   addLog: (msg: string) => void,
-  onProgress: (phase: string, pct: number) => void,
+  onProgress: (status: string) => void,
 ): Promise<string> {
   const fs: any = (window as any).require?.('fs') || require('fs');
   if (!fs.existsSync(modelsJsonPath)) {
@@ -83,41 +117,74 @@ async function ensureModels(
     { key: 'punc', entry: cfg.punc, parent: 'punc' },
   ];
 
-  let downloaded = false;
+  // Shared progress state (updated atomically by each model's download)
+  const progress: ModelProgress = { vad: 0, asr: 0, punc: 0 };
+
+  // Check which files need downloading
+  const tasks: Array<{ key: string; entry: ModelEntry; parent: string; files: Array<{ url: string; dest: string }> }> = [];
+  let anyDownload = false;
+
   for (const { key, entry, parent } of entries) {
     const modelDir = `${modelsDir}/${parent}/${entry.name}`;
     try { fs.mkdirSync(modelDir, { recursive: true }); } catch {}
+    const filesToDownload: Array<{ url: string; dest: string }> = [];
+
     for (const f of entry.files) {
       const dest = `${modelDir}/${f}`;
-      const md5File = dest + '.md5';
-      const exists = fs.existsSync(dest);
-      const isEmpty = exists && fs.statSync(dest).size === 0;
-
-      // Check MD5 if file exists and is non-empty
-      let md5Ok = false;
-      if (exists && !isEmpty && fs.existsSync(md5File)) {
-        try {
-          const expected = fs.readFileSync(md5File, 'utf-8').trim();
-          const actual = computeMD5(dest, fs);
-          md5Ok = expected === actual;
-          if (!md5Ok) addLog(`${key}/${f}: MD5 mismatch (expected ${expected.slice(0,8)}..., got ${actual.slice(0,8)}...)`);
-        } catch { /* md5 check failed, re-download */ }
+      if (!isModelValid(dest, fs)) {
+        filesToDownload.push({ url: `${entry.url}/${f}`, dest });
+        anyDownload = true;
       }
+    }
 
-      if (!exists || isEmpty || !md5Ok) {
-        const url = `${entry.url}/${f}`;
-        addLog(`Downloading ${key}/${f}...`);
-        onProgress(key, 0);
-        await downloadFile(url, dest, fs);
-        const stat = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-        addLog(`${key}/${f}: ${(stat / 1024).toFixed(0)}KB`);
-        onProgress(key, 100);
-        downloaded = true;
-      }
+    if (filesToDownload.length > 0) {
+      tasks.push({ key, entry, parent, files: filesToDownload });
+    } else {
+      progress[key] = 100; // already valid
     }
   }
 
-  if (downloaded) addLog('All models ready');
+  if (!anyDownload) return modelsDir;
+
+  // Report initial state
+  onProgress(formatProgress(progress));
+  addLog(`Downloading models: ${formatProgress(progress)}`);
+
+  // Download each model group in parallel
+  await Promise.all(tasks.map(async ({ key, files }) => {
+    let totalBytes = 0;
+    let downloadedBytes = 0;
+
+    // First pass: get total size for this model group
+    for (const { url, dest } of files) {
+      try {
+        const res = await fetch(url, { method: 'HEAD', headers: { 'User-Agent': 'VermilionVoice/0.1.0' } });
+        totalBytes += Number(res.headers.get('content-length') || 0);
+      } catch { /* ignore, progress will be approximate */ }
+    }
+
+    // Download files sequentially within each model group
+    for (const { url, dest } of files) {
+      const fname = dest.replace(/.*\//, '');
+      addLog(`Downloading ${key}/${fname}...`);
+
+      await downloadWithProgress(url, dest, fs, (received, _total) => {
+        const modelPct = totalBytes > 0
+          ? Math.round(((downloadedBytes + received) / totalBytes) * 100)
+          : 0;
+        progress[key] = Math.min(modelPct, 99);
+        onProgress(formatProgress(progress));
+      });
+
+      downloadedBytes += fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+      addLog(`${key}/${fname}: ${(fs.statSync(dest).size / 1024).toFixed(0)}KB`);
+    }
+
+    progress[key] = 100;
+    onProgress(formatProgress(progress));
+  }));
+
+  addLog('All models ready');
   return modelsDir;
 }
 
@@ -463,8 +530,8 @@ export default class VermilionVoicePlugin extends Plugin {
         baseDir,
         modelsJsonPath,
         this.addLog.bind(this),
-        (phase, pct) => {
-          view.setStatus('loading', `Downloading ${phase}... ${pct}%`);
+        (status) => {
+          view.setStatus('loading', status);
         },
       );
     }
