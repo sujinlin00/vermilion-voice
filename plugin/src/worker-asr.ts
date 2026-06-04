@@ -1,4 +1,4 @@
-// Voice-Solo Worker B — ASR + PUNC (on-demand per speech segment)
+// Vermilion Voice Worker B — ASR + PUNC (on-demand per speech segment)
 //
 // Receives speech segments from main thread (forwarded from Worker A),
 // runs ASR ONNX + decode + PUNC, outputs text results.
@@ -31,7 +31,7 @@ function clipFeat(feat: Float32Array, len: number, dim: number) {
 async function init(config: import('./types').AsrInitConfig) {
   post({ type: 'progress', phase: 'ort', pct: 100 });
 
-  ort.env.wasm.wasmPaths = 'https://voice-solo.local/';
+  ort.env.wasm.wasmPaths = 'https://vermilion-voice.local/';
   ort.env.wasm.numThreads = 1;
 
   const wasmBinaries: Record<string, ArrayBuffer> = {

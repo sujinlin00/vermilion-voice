@@ -1,5 +1,5 @@
 {
-  "name": "voice-solo",
+  "name": "vermilion-voice",
   "version": "0.1.0",
   "description": "Local speech recognition in Obsidian — ONNX + WebGPU, no cloud",
   "main": "main.js",

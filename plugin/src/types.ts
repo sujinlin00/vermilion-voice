@@ -1,4 +1,4 @@
-// Voice-Solo Dual-Worker Message Protocol
+// Vermilion Voice Dual-Worker Message Protocol
 
 // ---- Shared ----
 
@@ -11,7 +11,7 @@ export interface PerfStats {
   heapMB: number;
 }
 
-export interface VoiceSoloSettings {
+export interface VermilionVoiceSettings {
   // Model
   modelBasePath: string;
   asrModelTier: 'standard' | 'performance';

@@ -1,4 +1,4 @@
-// Voice-Solo Worker A — VAD (always running, never blocked)
+// Vermilion Voice Worker A — VAD (always running, never blocked)
 //
 // Receives audio chunks from main thread, runs streaming VAD ONNX,
 // outputs speech segments to main thread for forwarding to Worker B.
@@ -79,7 +79,7 @@ async function init(config: import('./types').VadInitConfig) {
 
   post({ type: 'progress', phase: 'ort', pct: 100 });
 
-  ort.env.wasm.wasmPaths = 'https://voice-solo.local/';
+  ort.env.wasm.wasmPaths = 'https://vermilion-voice.local/';
   ort.env.wasm.numThreads = 1;
 
   const wasmBinaries: Record<string, ArrayBuffer> = {

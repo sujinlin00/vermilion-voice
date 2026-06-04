@@ -1,9 +1,9 @@
 {
-  "id": "voice-solo",
-  "name": "Voice Solo",
+  "id": "vermilion-voice",
+  "name": "Vermilion Voice",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Local speech recognition using ONNX + WebGPU — no cloud required",
-  "author": "Voice-Solo",
+  "description": "Local speech recognition / 本地语音识别 — real-time voice transcription using ONNX + WebGPU, no cloud required",
+  "author": "Vermilion",
   "isDesktopOnly": true
 }

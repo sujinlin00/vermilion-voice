@@ -1,7 +1,7 @@
 import { Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import type { App } from 'obsidian';
-import { VoiceSoloView, VIEW_TYPE } from './view';
-import type { VoiceSoloSettings, AppConfig, VadConfig } from './types';
+import { VermilionVoiceView, VIEW_TYPE } from './view';
+import type { VermilionVoiceSettings, AppConfig, VadConfig } from './types';
 import type { VadToMain, AsrToMain } from './types';
 import { TextProcessor } from './text-processor';
 import { FlacEncoder } from './flac-encoder';
@@ -112,7 +112,7 @@ async function ensureWasmFile(wasmPath: string, addLog: (msg: string) => void): 
   }
 }
 
-const DEFAULT_SETTINGS: VoiceSoloSettings = {
+const DEFAULT_SETTINGS: VermilionVoiceSettings = {
   modelBasePath: '',
   asrModelTier: 'standard',
   outputToNote: false,
@@ -129,8 +129,8 @@ const DEFAULT_SETTINGS: VoiceSoloSettings = {
   hotWords: {},
 };
 
-export default class VoiceSoloPlugin extends Plugin {
-  settings: VoiceSoloSettings;
+export default class VermilionVoicePlugin extends Plugin {
+  settings: VermilionVoiceSettings;
   private vadWorker: Worker | null = null;
   private asrWorker: Worker | null = null;
   private audioCtx: AudioContext | null = null;
@@ -155,7 +155,7 @@ export default class VoiceSoloPlugin extends Plugin {
   private tickTimer: number = 0;
   private workerCleanupTimer: number = 0;
   private puncTimer: number = 0;
-  private puncPending: { text: string; startMs: number; endMs: number; view: VoiceSoloView } | null = null;
+  private puncPending: { text: string; startMs: number; endMs: number; view: VermilionVoiceView } | null = null;
   private puncFromCarry: boolean = false;
 
   private addLog(msg: string) {
@@ -165,10 +165,10 @@ export default class VoiceSoloPlugin extends Plugin {
   }
 
   private async flushLog(reason: string) {
-    console.log(`[VoiceSolo] flushLog(${reason}) bufLen=${this.logBuf.length}`, this.logBuf.slice(0, 5));
+    console.log(`[VermilionVoice] flushLog(${reason}) bufLen=${this.logBuf.length}`, this.logBuf.slice(0, 5));
     if (this.logBuf.length === 0) return;
     try {
-      const text = `# Voice-Solo Debug Log — ${reason}\n\n` +
+      const text = `# Vermilion Voice Debug Log — ${reason}\n\n` +
         this.logBuf.map(l => `- ${l}`).join('\n');
       const file = this.pluginDir.replace(/\\/g, '/') + '/debug-log.md';
       const fs: any = (window as any).require?.('fs') || require('fs');
@@ -179,23 +179,23 @@ export default class VoiceSoloPlugin extends Plugin {
 
   async onload() {
     const vaultRoot = (this.app.vault.adapter as any).basePath as string;
-    this.pluginDir = vaultRoot + '/.obsidian/plugins/voice-solo';
+    this.pluginDir = vaultRoot + '/.obsidian/plugins/vermilion-voice';
 
     await this.loadSettings();
     this.loadAppConfig();
 
     this.registerView(VIEW_TYPE, (leaf) => {
-      const view = new VoiceSoloView(leaf);
+      const view = new VermilionVoiceView(leaf);
       view.onStart = () => this.startRecognition(view);
       view.onStop = () => this.stopRecognition();
       return view;
     });
 
-    this.addRibbonIcon('mic', 'Voice Solo', () => this.toggleView());
-    this.addSettingTab(new VoiceSoloSettingTab(this.app, this));
+    this.addRibbonIcon('mic', 'Vermilion Voice', () => this.toggleView());
+    this.addSettingTab(new VermilionVoiceSettingTab(this.app, this));
 
     this.addCommand({
-      id: 'voice-solo-open',
+      id: 'vermilion-voice-open',
       name: 'Open voice recognition panel',
       callback: () => this.toggleView(),
     });
@@ -226,8 +226,8 @@ export default class VoiceSoloPlugin extends Plugin {
 
   // ---- Recognition lifecycle ----
 
-  async startRecognition(view: VoiceSoloView) {
-    console.log('[VoiceSolo] startRecognition called');
+  async startRecognition(view: VermilionVoiceView) {
+    console.log('[VermilionVoice] startRecognition called');
     try {
       this.addLog('START requested');
       const fs: any = (window as any).require?.('fs') || require('fs');
@@ -262,7 +262,7 @@ export default class VoiceSoloPlugin extends Plugin {
       this.tickTimer = window.setInterval(() => {
         const results = this.textProc.tickForce(Date.now());
         const lv = this.app.workspace.getLeavesOfType(VIEW_TYPE);
-        const v = lv.length > 0 ? lv[0].view as VoiceSoloView : null;
+        const v = lv.length > 0 ? lv[0].view as VermilionVoiceView : null;
         for (const r of results) {
           if (r.text) {
             if (v) v.addSegment(r.text, 0, 0);
@@ -289,7 +289,7 @@ export default class VoiceSoloPlugin extends Plugin {
       this.addLog('[step] startMic done');
     } catch (e: any) {
       this.addLog(`ERROR: ${e.message}\n${e.stack}`);
-      console.error('[VoiceSolo] startRecognition failed:', e);
+      console.error('[VermilionVoice] startRecognition failed:', e);
       view.setStatus('error', e.message || '启动失败');
       this.stopRecognition();
     }
@@ -302,7 +302,7 @@ export default class VoiceSoloPlugin extends Plugin {
     // Flush text processor
     const parts = this.textProc.flush(Date.now());
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
-    const view = leaves.length > 0 ? leaves[0].view as VoiceSoloView : null;
+    const view = leaves.length > 0 ? leaves[0].view as VermilionVoiceView : null;
     for (const p of parts) {
       if (p.text) {
         if (view) view.addSegment(p.text, 0, 0);
@@ -377,7 +377,7 @@ export default class VoiceSoloPlugin extends Plugin {
 
   // ---- Dual Worker setup ----
 
-  async createWorkers(view: VoiceSoloView) {
+  async createWorkers(view: VermilionVoiceView) {
     // Clean up existing workers
     if (this.vadWorker) { this.vadWorker.terminate(); this.vadWorker = null; }
     if (this.asrWorker) { this.asrWorker.terminate(); this.asrWorker = null; }
@@ -442,7 +442,7 @@ export default class VoiceSoloPlugin extends Plugin {
     this.vadWorker = new Worker(URL.createObjectURL(vadBlob), { type: 'module' });
 
     this.vadWorker.onerror = (e) => {
-      console.error('[VoiceSolo] VAD Worker error:', e.message);
+      console.error('[VermilionVoice] VAD Worker error:', e.message);
       view.setStatus('error', 'VAD Worker: ' + e.message);
     };
 
@@ -452,8 +452,8 @@ export default class VoiceSoloPlugin extends Plugin {
 
     // Init VAD worker (slice copies — each worker gets its own ArrayBuffer)
     const vadBuf = vadModelBuf.slice(0);
-    console.log(`[VoiceSolo] VAD postMessage: modelBuf=${vadBuf.byteLength} wasm=${simdWasm.byteLength}`);
-    console.log(`[VoiceSolo] VAD config: sensitivity=${this.settings.vadSensitivity} vadCfg=`, JSON.stringify(this.vadCfg));
+    console.log(`[VermilionVoice] VAD postMessage: modelBuf=${vadBuf.byteLength} wasm=${simdWasm.byteLength}`);
+    console.log(`[VermilionVoice] VAD config: sensitivity=${this.settings.vadSensitivity} vadCfg=`, JSON.stringify(this.vadCfg));
     this.vadWorker.postMessage({
       type: 'init',
       config: {
@@ -472,7 +472,7 @@ export default class VoiceSoloPlugin extends Plugin {
     this.asrWorker = new Worker(URL.createObjectURL(asrBlob), { type: 'module' });
 
     this.asrWorker.onerror = (e) => {
-      console.error('[VoiceSolo] ASR Worker error:', e.message);
+      console.error('[VermilionVoice] ASR Worker error:', e.message);
       view.setStatus('error', 'ASR Worker: ' + e.message);
     };
 
@@ -483,7 +483,7 @@ export default class VoiceSoloPlugin extends Plugin {
     // Init ASR worker
     const asrBuf = asrModelBuf.slice(0);
     const puncBuf = puncModelBuf.slice(0);
-    console.log(`[VoiceSolo] ASR postMessage: asrBuf=${asrBuf.byteLength} puncBuf=${puncBuf.byteLength} wasm=${simdWasm.byteLength}`);
+    console.log(`[VermilionVoice] ASR postMessage: asrBuf=${asrBuf.byteLength} puncBuf=${puncBuf.byteLength} wasm=${simdWasm.byteLength}`);
     this.asrWorker.postMessage({
       type: 'init',
       config: {
@@ -506,7 +506,7 @@ export default class VoiceSoloPlugin extends Plugin {
 
   // ---- Message routing ----
 
-  handleVadMessage(msg: VadToMain, view: VoiceSoloView) {
+  handleVadMessage(msg: VadToMain, view: VermilionVoiceView) {
     if (msg.type !== 'progress') this.addLog(`VAD → ${msg.type}${'status' in msg ? ':' + msg.status : ''}`);
     switch (msg.type) {
       case 'ready':
@@ -536,7 +536,7 @@ export default class VoiceSoloPlugin extends Plugin {
     }
   }
 
-  handleAsrMessage(msg: AsrToMain, view: VoiceSoloView) {
+  handleAsrMessage(msg: AsrToMain, view: VermilionVoiceView) {
     if (msg.type !== 'progress') this.addLog(`ASR → ${msg.type}${'status' in msg ? ':' + msg.status : ''}`);
     switch (msg.type) {
       case 'ready':
@@ -609,7 +609,7 @@ export default class VoiceSoloPlugin extends Plugin {
    */
   private handleAsrResult(
     text: string, startMs: number, endMs: number,
-    reason: string | undefined, view: VoiceSoloView, perf?: any,
+    reason: string | undefined, view: VermilionVoiceView, perf?: any,
     isCarryCombined: boolean = false,
   ) {
     const carry = this.textProc.getCarryBuffer();
@@ -761,7 +761,7 @@ export default class VoiceSoloPlugin extends Plugin {
 
   // ---- Audio capture ----
 
-  async startMic(view: VoiceSoloView) {
+  async startMic(view: VermilionVoiceView) {
     const fs: any = (window as any).require?.('fs') || require('fs');
     const workletCode = fs.readFileSync(this.pluginDir + '/mic_worklet.js', 'utf-8');
 
@@ -911,10 +911,10 @@ export default class VoiceSoloPlugin extends Plugin {
 
 // ---- Settings Tab ----
 
-class VoiceSoloSettingTab extends PluginSettingTab {
-  plugin: VoiceSoloPlugin;
+class VermilionVoiceSettingTab extends PluginSettingTab {
+  plugin: VermilionVoicePlugin;
 
-  constructor(app: App, plugin: VoiceSoloPlugin) {
+  constructor(app: App, plugin: VermilionVoicePlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
@@ -923,7 +923,7 @@ class VoiceSoloSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     const s = this.plugin.settings;
     containerEl.empty();
-    containerEl.createEl('h2', { text: 'Voice Solo Settings' });
+    containerEl.createEl('h2', { text: 'Vermilion Voice Settings' });
 
     // ═══ 模型选择 ═══
     this.sectionHeading(containerEl, '模型选择');
@@ -973,7 +973,7 @@ class VoiceSoloSettingTab extends PluginSettingTab {
     const outputFolderSetting = new Setting(containerEl)
       .setName('转录文本路径')
       .setDesc('转录文本的输出路径（相对于保险库根目录）')
-      .setClass('voice-solo-setting-indent')
+      .setClass('vermilion-voice-setting-indent')
       .addText(text => {
         outputFolderText = text;
         text.setPlaceholder('Transcriptions');
@@ -1000,7 +1000,7 @@ class VoiceSoloSettingTab extends PluginSettingTab {
     const recordingFolderSetting = new Setting(containerEl)
       .setName('录音文件路径')
       .setDesc('录音文件的输出路径（相对于保险库根目录）')
-      .setClass('voice-solo-setting-indent')
+      .setClass('vermilion-voice-setting-indent')
       .addText(text => {
         recordingFolderText = text;
         text.setPlaceholder('Recordings');
@@ -1119,7 +1119,7 @@ class VoiceSoloSettingTab extends PluginSettingTab {
       if (micSettingRow) {
         const info = micSettingRow.querySelector('.setting-item-info') as HTMLElement;
         if (info) info.style.opacity = disabled ? '0.4' : '1';
-        micSettingRow.classList.toggle('voice-solo-setting-disabled', disabled);
+        micSettingRow.classList.toggle('vermilion-voice-setting-disabled', disabled);
       }
     };
 
@@ -1211,7 +1211,7 @@ class VoiceSoloSettingTab extends PluginSettingTab {
   }
 
   private sectionHeading(el: HTMLElement, title: string) {
-    const h = el.createDiv({ cls: 'voice-solo-settings-heading' });
+    const h = el.createDiv({ cls: 'vermilion-voice-settings-heading' });
     h.setText(title);
   }
 
@@ -1224,7 +1224,7 @@ class VoiceSoloSettingTab extends PluginSettingTab {
     if (row) {
       const info = row.querySelector('.setting-item-info') as HTMLElement;
       if (info) info.style.opacity = disabled ? '0.4' : '1';
-      (row as HTMLElement).classList.toggle('voice-solo-setting-disabled', disabled);
+      (row as HTMLElement).classList.toggle('vermilion-voice-setting-disabled', disabled);
     }
   }
 
@@ -1254,7 +1254,7 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         selectEl.appendChild(o);
       }
     } catch (e) {
-      console.warn('[VoiceSolo] Cannot enumerate audio devices:', e);
+      console.warn('[VermilionVoice] Cannot enumerate audio devices:', e);
     }
   }
 }

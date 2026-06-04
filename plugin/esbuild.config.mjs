@@ -8,7 +8,7 @@ const prod = process.argv.includes('production');
 
 // Obsidian plugin target directory (auto-deploy)
 const OBSIDIAN_VAULT = process.env.OBSIDIAN_VAULT || join(__dirname, '../../../arvin-notes');
-const DEPLOY_DIR = join(OBSIDIAN_VAULT, '.obsidian/plugins/voice-solo');
+const DEPLOY_DIR = join(OBSIDIAN_VAULT, '.obsidian/plugins/vermilion-voice');
 
 // ORT bundle: committed ort.bundle.min.mjs (npm wasm-only build, 468KB)
 // ort-wasm-simd-threaded.wasm (~11MB) is downloaded at runtime from CDN
@@ -48,13 +48,13 @@ await esbuild.build({
 
 // Auto-deploy to Obsidian plugins directory
 if (existsSync(DEPLOY_DIR)) {
-  for (const f of ['main.js', 'worker-vad.js', 'worker-asr.js', 'settings.json', 'styles.css', 'manifest.json']) {
+  for (const f of ['main.js', 'worker-vad.js', 'worker-asr.js', 'mic_worklet.js', 'settings.json', 'styles.css', 'manifest.json']) {
     const src = join(__dirname, f);
     if (existsSync(src)) {
       copyFileSync(src, join(DEPLOY_DIR, f));
     }
   }
-  console.log(`[voice-solo] Deployed to ${DEPLOY_DIR}`);
+  console.log(`[vermilion-voice] Deployed to ${DEPLOY_DIR}`);
 }
 
-console.log('[voice-solo] Build complete');
+console.log('[vermilion-voice] Build complete');

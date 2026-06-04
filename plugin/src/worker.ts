@@ -1,4 +1,4 @@
-// Voice-Solo Pipeline Worker — VAD → ASR → PUNC
+// Vermilion Voice Pipeline Worker — VAD → ASR → PUNC
 //
 // Simple sequential pipeline:
 //   1. Audio always accumulated (never dropped)
@@ -63,7 +63,7 @@ function clipFeat(feat: Float32Array, len: number, dim: number) {
 async function init(config: InitConfig) {
   post({ type: 'progress', phase: 'ort', pct: 100 });
 
-  ort.env.wasm.wasmPaths = 'https://voice-solo.local/';
+  ort.env.wasm.wasmPaths = 'https://vermilion-voice.local/';
   ort.env.wasm.numThreads = 1;
 
   const wasmBinaries: Record<string, ArrayBuffer> = {

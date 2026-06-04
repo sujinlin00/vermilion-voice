@@ -1,8 +1,8 @@
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 
-export const VIEW_TYPE = 'voice-solo-view';
+export const VIEW_TYPE = 'vermilion-voice-view';
 
-export class VoiceSoloView extends ItemView {
+export class VermilionVoiceView extends ItemView {
   private isRunning = false;
   private statusEl: HTMLElement;
   private outputEl: HTMLElement;
@@ -26,7 +26,7 @@ export class VoiceSoloView extends ItemView {
   }
 
   getDisplayText(): string {
-    return 'Voice Solo';
+    return 'Vermilion Voice';
   }
 
   getIcon(): string {
@@ -36,32 +36,32 @@ export class VoiceSoloView extends ItemView {
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
-    container.addClass('voice-solo-container');
+    container.addClass('vermilion-voice-container');
 
     // Header
-    const header = container.createEl('div', { cls: 'voice-solo-header' });
-    header.createEl('span', { text: 'Voice Solo', cls: 'voice-solo-title' });
+    const header = container.createEl('div', { cls: 'vermilion-voice-header' });
+    header.createEl('span', { text: 'Vermilion Voice', cls: 'vermilion-voice-title' });
 
     this.statusEl = header.createEl('span', {
       text: '就绪',
-      cls: 'voice-solo-status voice-solo-idle',
+      cls: 'vermilion-voice-status vermilion-voice-idle',
     });
 
     // Controls
-    const controls = container.createEl('div', { cls: 'voice-solo-controls' });
+    const controls = container.createEl('div', { cls: 'vermilion-voice-controls' });
     this.btnStart = controls.createEl('button', {
       text: '开始识别',
-      cls: 'voice-solo-btn voice-solo-btn-start',
+      cls: 'vermilion-voice-btn vermilion-voice-btn-start',
     });
     this.btnStop = controls.createEl('button', {
       text: '停止',
-      cls: 'voice-solo-btn voice-solo-btn-stop',
+      cls: 'vermilion-voice-btn vermilion-voice-btn-stop',
     });
     this.btnStop.disabled = true;
 
     this.btnClear = controls.createEl('button', {
       text: '清屏',
-      cls: 'voice-solo-btn voice-solo-btn-clear',
+      cls: 'vermilion-voice-btn vermilion-voice-btn-clear',
     });
 
     this.btnStart.addEventListener('click', async () => {
@@ -96,15 +96,15 @@ export class VoiceSoloView extends ItemView {
     });
 
     // Stats bar
-    const stats = container.createEl('div', { cls: 'voice-solo-stats' });
-    this.bufferEl = stats.createEl('span', { text: '缓冲: 0s', cls: 'voice-solo-stat' });
-    this.segCountEl = stats.createEl('span', { text: '段数: 0', cls: 'voice-solo-stat' });
+    const stats = container.createEl('div', { cls: 'vermilion-voice-stats' });
+    this.bufferEl = stats.createEl('span', { text: '缓冲: 0s', cls: 'vermilion-voice-stat' });
+    this.segCountEl = stats.createEl('span', { text: '段数: 0', cls: 'vermilion-voice-stat' });
 
     // Output
-    this.outputEl = container.createEl('div', { cls: 'voice-solo-output' });
+    this.outputEl = container.createEl('div', { cls: 'vermilion-voice-output' });
     this.outputEl.createEl('div', {
       text: '加载模型后点击"开始识别"开始实时语音识别',
-      cls: 'voice-solo-placeholder',
+      cls: 'vermilion-voice-placeholder',
     });
   }
 
@@ -113,7 +113,7 @@ export class VoiceSoloView extends ItemView {
   }
 
   setStatus(cls: string, text: string) {
-    this.statusEl.className = 'voice-solo-status voice-solo-' + cls;
+    this.statusEl.className = 'vermilion-voice-status vermilion-voice-' + cls;
     this.statusEl.textContent = text;
   }
 
@@ -125,17 +125,17 @@ export class VoiceSoloView extends ItemView {
     this.segCount++;
     this.segCountEl.textContent = `段数: ${this.segCount}`;
 
-    const ph = this.outputEl.querySelector('.voice-solo-placeholder');
+    const ph = this.outputEl.querySelector('.vermilion-voice-placeholder');
     if (ph) ph.remove();
 
-    const seg = this.outputEl.createEl('div', { cls: 'voice-solo-segment' });
+    const seg = this.outputEl.createEl('div', { cls: 'vermilion-voice-segment' });
 
     let timeStr = `${(startMs / 1000).toFixed(1)}s — ${(endMs / 1000).toFixed(1)}s`;
     if (perf) {
       timeStr += ` | VAD ${perf.vadMs}ms | FB ${perf.asrFbankMs}ms | ASR ${perf.asrInferMs}ms | DEC ${perf.asrDecodeMs}ms | PUNC ${perf.puncMs}ms | 堆 ${perf.heapMB}MB`;
     }
-    seg.createEl('div', { text: timeStr, cls: 'voice-solo-seg-time' });
-    seg.createEl('div', { text, cls: 'voice-solo-seg-text' });
+    seg.createEl('div', { text: timeStr, cls: 'vermilion-voice-seg-time' });
+    seg.createEl('div', { text, cls: 'vermilion-voice-seg-text' });
 
     this.outputEl.scrollTop = this.outputEl.scrollHeight;
   }
@@ -144,7 +144,7 @@ export class VoiceSoloView extends ItemView {
     this.outputEl.empty();
     this.outputEl.createEl('div', {
       text: '点击"开始识别"开始实时语音识别',
-      cls: 'voice-solo-placeholder',
+      cls: 'vermilion-voice-placeholder',
     });
     this.segCount = 0;
     this.segCountEl.textContent = '段数: 0';
