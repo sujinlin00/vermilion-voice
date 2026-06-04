@@ -925,7 +925,7 @@ export default class VermilionVoicePlugin extends Plugin {
         },
       },
       workletCode,
-      audioCfg || { mic_enabled: true, output_enabled: false, output_source: 'system', mix_mode: 'merge' },
+      audioCfg || { mic_enabled: true, output_enabled: true, output_source: 'system', mix_mode: 'merge' },
     );
 
     this.addLog('[audio] starting capture...');
@@ -982,7 +982,7 @@ export default class VermilionVoicePlugin extends Plugin {
         onError: (msg) => { this.addLog(`[audio] error: ${msg}`); new Notice(msg, 5000); },
       },
       workletCode,
-      audioCfg || { mic_enabled: true, output_enabled: false, output_source: 'system', mix_mode: 'merge' },
+      audioCfg || { mic_enabled: true, output_enabled: true, output_source: 'system', mix_mode: 'merge' },
     );
 
     this.addLog('[audio] restarting capture...');
@@ -1284,7 +1284,7 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
     // ═══ Audio ═══
     this.sectionHeading(containerEl, t('settings.audio'));
 
-    const audioCfg = this.plugin.appConfig?.audio_capture || { mic_enabled: true, output_enabled: false, output_source: 'system', mix_mode: 'merge' };
+    const audioCfg = this.plugin.appConfig?.audio_capture || { mic_enabled: true, output_enabled: true, output_source: 'system', mix_mode: 'merge' };
 
     const updateMicEnabled = () => {
       const disabled = audioCfg.output_enabled && !audioCfg.mic_enabled;

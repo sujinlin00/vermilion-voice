@@ -36,7 +36,7 @@ export class AudioCaptureManager {
     this.workletCode = workletCode;
     this.config = captureConfig || {
       mic_enabled: true,
-      output_enabled: false,
+      output_enabled: true,
       output_source: 'system',
       mix_mode: 'merge',
     };
