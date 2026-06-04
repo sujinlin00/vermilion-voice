@@ -37,7 +37,7 @@ export interface VermilionVoiceSettings {
   maxSpeechDuration: number; // 最长语音分段(秒)
 
   // Advanced
-  hotWords: Record<string, string>;
+
 }
 
 // ---- settings.json config ----

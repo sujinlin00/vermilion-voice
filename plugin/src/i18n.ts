@@ -8,7 +8,6 @@ const translations: Record<Lang, Record<string, string>> = {
     'settings.output': '输出设置',
     'settings.granularity': '识别粒度',
     'settings.audio': '音频设置',
-    'settings.advanced': '高级',
 
     // Settings — Model
     'settings.inference': '推理精度',
@@ -66,10 +65,6 @@ const translations: Record<Lang, Record<string, string>> = {
     'settings.micDevice.refresh': '刷新设备列表',
     'settings.micDevice.device': '设备',
 
-    // Settings — Advanced
-    'settings.hotWords': '热词替换表',
-    'settings.hotWords.desc': 'JSON 格式: {"误识别词": "正确词", ...}',
-
     // Settings — Language
     'settings.language': '语言',
     'settings.language.desc': '界面显示语言',
@@ -108,7 +103,6 @@ const translations: Record<Lang, Record<string, string>> = {
     'settings.output': 'Output',
     'settings.granularity': 'Recognition',
     'settings.audio': 'Audio',
-    'settings.advanced': 'Advanced',
 
     // Settings — Model
     'settings.inference': 'Inference Mode',
@@ -165,10 +159,6 @@ const translations: Record<Lang, Record<string, string>> = {
     'settings.micDevice.default': 'Default Microphone',
     'settings.micDevice.refresh': 'Refresh device list',
     'settings.micDevice.device': 'Device',
-
-    // Settings — Advanced
-    'settings.hotWords': 'Hot Word Replacement',
-    'settings.hotWords.desc': 'JSON format: {"misrecognized": "correct", ...}',
 
     // Settings — Language
     'settings.language': 'Language',

@@ -128,7 +128,7 @@ const DEFAULT_SETTINGS: VermilionVoiceSettings = {
   silenceThreshold: 2.5,
   maxLineChars: 90,
   maxSpeechDuration: 4.0,
-  hotWords: {},
+
 };
 
 export default class VermilionVoicePlugin extends Plugin {
@@ -1210,21 +1210,6 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
 
     this.refreshAudioDevices(audioSelectEl);
 
-    // ═══ Advanced ═══
-    this.sectionHeading(containerEl, t('settings.advanced'));
-
-    new Setting(containerEl)
-      .setName(t('settings.hotWords'))
-      .setDesc(t('settings.hotWords.desc'))
-      .addTextArea(text => text
-        .setPlaceholder('{"电缆": "靛蓝", "cloud": "吲哚"}')
-        .setValue(JSON.stringify(s.hotWords, null, 2))
-        .onChange(async (v) => {
-          try {
-            this.plugin.settings.hotWords = JSON.parse(v || '{}');
-            await this.plugin.saveSettings();
-          } catch { /* invalid JSON, ignore */ }
-        }));
   }
 
   private sectionHeading(el: HTMLElement, title: string) {
