@@ -585,6 +585,7 @@ export default class VermilionVoicePlugin extends Plugin {
         this.flushLog('VAD-error');
         break;
       case 'progress':
+        view.setStatus('loading', `${msg.phase.toUpperCase()}: ${msg.pct}%`);
         break;
     }
   }
@@ -627,6 +628,7 @@ export default class VermilionVoicePlugin extends Plugin {
         this.flushLog('ASR-error');
         break;
       case 'progress':
+        view.setStatus('loading', `${msg.phase.toUpperCase()}: ${msg.pct}%`);
         break;
     }
   }
