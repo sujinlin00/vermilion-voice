@@ -17,8 +17,6 @@ interface TickResult {
   status: 'newline' | 'continuous';
 }
 
-const PUNCTUATION = '。！？.!?';
-const SPLIT_PUNCTUATION = '，。！？.!?、';
 
 // Characters that are legitimate to repeat ≥3 times (e.g. laughter, onomatopoeia)
 const LEGITIMATE_REPEATS = new Set([
@@ -31,6 +29,7 @@ export class TextProcessor {
   private sentPos = 0;
   private needsNewline = false;
   private isFirstLine = true;
+  private hasOutput = false;
   private prevSegmentTail = '';
   private lastSegmentEnd = 0;        // ms
   private recentOutputs: Array<{ text: string; time: number }> = [];
@@ -41,14 +40,16 @@ export class TextProcessor {
   private maxLineChars = 90;
   private silenceThresholdSec = 2.5;
   private dedupWindowSec = 5.0;
-  private splitPunctuation = '。！？.!?；;，、';
+  private newlinePunctuation = '。！？.!?';       // 换行：句末标点
+  private carryPunctuation = '，。！？、；：,.!?;:';  // carry：所有标点
 
-  constructor(cfg?: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number; split_punctuation?: string }) {
+  constructor(cfg?: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number; newline_punctuation?: string; carry_punctuation?: string }) {
     if (cfg) {
       if (cfg.silence_threshold != null) this.silenceThresholdSec = cfg.silence_threshold;
       if (cfg.max_line_chars != null) this.maxLineChars = cfg.max_line_chars;
       if (cfg.dedup_window != null) this.dedupWindowSec = cfg.dedup_window;
-      if (cfg.split_punctuation != null) this.splitPunctuation = cfg.split_punctuation;
+      if (cfg.newline_punctuation != null) this.newlinePunctuation = cfg.newline_punctuation;
+      if (cfg.carry_punctuation != null) this.carryPunctuation = cfg.carry_punctuation;
     }
   }
 
@@ -118,8 +119,8 @@ export class TextProcessor {
 
     if (this.isDuplicate(this.buffer, currentTime)) return [];
 
-    // Only trigger newline when flag is set AND buffer ends with split punctuation
-    if (this.needsNewline && this.buffer.slice(-1).match(/[，。！？.!?、]/)) {
+    // Only trigger newline when flag is set AND buffer ends with newline punctuation
+    if (this.needsNewline && this.newlinePunctuation.includes(this.buffer.slice(-1))) {
       const unsent = this.buffer.slice(this.sentPos);
       const fullLen = this.buffer.length;
       this.buffer = '';
@@ -165,32 +166,46 @@ export class TextProcessor {
   setCarryText(text: string): string {
     if (!text) { this.carryBuffer = ''; return ''; }
 
-    // Strip trailing punctuation (all punctuation including commas)
-    const trailingRe = new RegExp(`[${this.splitPunctuation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]+$`);
+    // Record and strip trailing punctuation
+    const trailingRe = new RegExp(`([${this.carryPunctuation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]+)$`);
+    const trailingMatch = text.match(trailingRe);
+    const trailingPunc = trailingMatch ? trailingMatch[1] : '';
     const stripped = text.replace(trailingRe, '');
     if (!stripped) { this.carryBuffer = ''; return ''; }
 
-    // Find all split-punctuation positions
+    // Find all split-punctuation positions in stripped text
     const positions: number[] = [];
     for (let i = 0; i < stripped.length; i++) {
-      if (this.splitPunctuation.includes(stripped[i])) positions.push(i);
+      if (this.carryPunctuation.includes(stripped[i])) positions.push(i);
     }
 
-    if (positions.length >= 2) {
-      // Split at second-to-last punctuation
-      const splitAt = positions[positions.length - 2] + 1;
-      const output = stripped.slice(0, splitAt);
-      this.carryBuffer = stripped.slice(splitAt);
-      return output;
+    let output: string;
+    if (positions.length >= 1) {
+      // Split at LAST punctuation
+      const splitAt = positions[positions.length - 1] + 1;
+      output = stripped.slice(0, splitAt);
+      // Carry = text after last punc, stripped of ALL punctuation
+      const rawCarry = stripped.slice(splitAt);
+      this.carryBuffer = this.stripAllPunctuation(rawCarry);
     } else {
-      // Less than 2 punctuation marks: store everything in carry
-      this.carryBuffer = stripped;
-      return '';
+      // No punctuation: store everything in carry, stripped of ALL punctuation
+      output = '';
+      this.carryBuffer = this.stripAllPunctuation(stripped);
     }
+
+    // Debug log
+    console.log(`[setCarryText] input="${text.slice(0,30)}..." positions=[${positions}] output="${output.slice(0,20)}" carry="${this.carryBuffer.slice(0,20)}"`);
+
+    return output;
   }
 
   /** Get current carry buffer content. */
   getCarryBuffer(): string { return this.carryBuffer; }
+
+  /** Force next output to be a new paragraph (with \n\n prefix). */
+  forceNewline() {
+    this.isFirstLine = false;
+  }
 
   /** Clear carry buffer. */
   clearCarryBuffer() { this.carryBuffer = ''; }
@@ -200,6 +215,7 @@ export class TextProcessor {
     this.sentPos = 0;
     this.needsNewline = false;
     this.isFirstLine = true;
+    this.hasOutput = false;
     this.prevSegmentTail = '';
     this.lastSegmentEnd = 0;
     this.recentOutputs = [];
@@ -225,7 +241,8 @@ export class TextProcessor {
   // ---- Tick rules ----
 
   private applyTickRules(silenceSec: number, currentTime: number): TickResult[] {
-    const isSentenceEnd = PUNCTUATION.includes(this.buffer.slice(-1));
+    const lastChar = this.buffer.slice(-1);
+    const isSentenceEnd = this.newlinePunctuation.includes(lastChar);
     const fullLen = this.buffer.length;
 
     // Condition 1: silence ≥ threshold AND sentence-end punctuation → newline
@@ -243,8 +260,8 @@ export class TextProcessor {
       this.needsNewline = true;
     }
 
-    // Condition 3: flag set AND any split punctuation at end → newline
-    if (this.needsNewline && this.buffer.slice(-1).match(/[，。！？.!?、]/)) {
+    // Condition 3: flag set AND newline punctuation at end → newline
+    if (this.needsNewline && this.newlinePunctuation.includes(lastChar)) {
       const unsent = this.buffer.slice(this.sentPos);
       this.recordOutput(this.buffer, currentTime);
       this.buffer = '';
@@ -253,11 +270,15 @@ export class TextProcessor {
       return this.formatOutput(unsent, currentTime, 'newline');
     }
 
-    // Condition 4: flag set AND 2x overflow → force split at best point
-    if (this.needsNewline && fullLen >= this.maxLineChars * 2) {
+    // Condition 4: flag set AND overflow → force split at best point
+    if (this.needsNewline && fullLen >= Math.ceil(this.maxLineChars * 1.1)) {
       const splitAt = this.findBestSplit(this.buffer, this.maxLineChars);
-      const unsent = this.buffer.slice(this.sentPos, splitAt);
+      let unsent = this.buffer.slice(this.sentPos, splitAt);
       this.buffer = this.buffer.slice(splitAt);
+      // Strip trailing non-sentence-end punctuation (e.g. comma)
+      if (unsent.length > 0 && this.carryPunctuation.includes(unsent.slice(-1)) && !this.newlinePunctuation.includes(unsent.slice(-1))) {
+        unsent = unsent.slice(0, -1);
+      }
       this.recordOutput(unsent, currentTime);
       this.needsNewline = false;
       this.sentPos = 0;
@@ -289,7 +310,8 @@ export class TextProcessor {
     if (!text) return [];
 
     if (status === 'newline') {
-      if (this.isFirstLine) {
+      if (!this.hasOutput) {
+        this.hasOutput = true;
         this.isFirstLine = false;
         return [{ text: `${timeHeader} ${text}`, status: 'newline' }];
       } else {
@@ -297,7 +319,8 @@ export class TextProcessor {
       }
     } else {
       // continuous
-      if (this.isFirstLine) {
+      if (!this.hasOutput) {
+        this.hasOutput = true;
         this.isFirstLine = false;
         return [{ text: `${timeHeader} ${text}`, status: 'continuous' }];
       }
@@ -424,14 +447,20 @@ export class TextProcessor {
 
   // ---- Helpers ----
 
+  /** Remove all punctuation from text (for carry buffer). */
+  private stripAllPunctuation(text: string): string {
+    const re = new RegExp(`[${this.carryPunctuation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}]`, 'g');
+    return text.replace(re, '').trim();
+  }
+
   private findBestSplit(buf: string, minLen: number): number {
-    // Prefer sentence-end punctuation near minLen
-    for (const p of '。！？') {
+    // Prefer sentence-end punctuation (newlinePunctuation) near minLen
+    for (const p of this.newlinePunctuation) {
       const idx = buf.lastIndexOf(p, buf.length - 1);
       if (idx >= minLen) return idx + 1;
     }
-    // Fallback to comma-class punctuation
-    for (const p of '，、；') {
+    // Fallback to carry punctuation (includes commas etc.)
+    for (const p of this.carryPunctuation) {
       const idx = buf.lastIndexOf(p, buf.length - 1);
       if (idx >= minLen) return idx + 1;
     }

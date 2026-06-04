@@ -43,7 +43,8 @@ export interface TextProcessorConfig {
   silence_threshold: number;
   max_line_chars: number;
   dedup_window: number;
-  split_punctuation: string;  // carry 切分识别的标点（句末标点）
+  newline_punctuation: string;  // 换行标点：句末标点
+  carry_punctuation: string;    // carry 切分标点：所有标点
 }
 
 export interface VadSensitivityFrames {
@@ -57,13 +58,22 @@ export interface VadConfig {
   max_speech_duration: number;
   pre_roll_duration: number;
   post_roll_duration: number;
+  forced_cut_silence_frames: number;
   speech_start_frames: VadSensitivityFrames;
   speech_end_frames: VadSensitivityFrames;
+}
+
+export interface AudioCaptureConfig {
+  mic_enabled: boolean;
+  output_enabled: boolean;
+  output_source: 'system' | 'window';  // system = 桌面音频, window = 指定窗口
+  mix_mode: 'merge';                   // 合并为单流（唯一模式）
 }
 
 export interface AppConfig {
   text_processor: TextProcessorConfig;
   vad: VadConfig;
+  audio_capture: AudioCaptureConfig;
 }
 
 // ---- Worker A: VAD (always running, never blocked) ----

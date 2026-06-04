@@ -3,13 +3,15 @@
     "silence_threshold": 2.5,
     "max_line_chars": 90,
     "dedup_window": 5.0,
-    "split_punctuation": "。！？.!?；;，、"
+    "newline_punctuation": "。！？.!?",
+    "carry_punctuation": "，。！？、；：,.!?;:"
   },
   "vad": {
     "min_speech_duration": 0.3,
     "max_speech_duration": 4.0,
     "pre_roll_duration": 0.08,
     "post_roll_duration": 0.12,
+    "forced_cut_silence_frames": 3,
     "speech_start_frames": {
       "high": 10,
       "medium": 20,
@@ -20,5 +22,11 @@
       "medium": 100,
       "low": 150
     }
+  },
+  "audio_capture": {
+    "mic_enabled": true,
+    "output_enabled": false,
+    "output_source": "system",
+    "mix_mode": "merge"
   }
 }

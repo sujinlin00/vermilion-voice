@@ -32,6 +32,7 @@ let maxSpeechFrames = 600;
 let preRollMs = 80;
 let postRollMs = 120;
 let minSpeechSamples = 3200;
+let forcedCutSilenceFrames = 3;
 
 function post(msg: VadToMain, transfer?: Transferable[]) {
   if (transfer) {
@@ -62,6 +63,7 @@ async function init(config: import('./types').VadInitConfig) {
     preRollMs = Math.round(cfg.pre_roll_duration * 1000);
     postRollMs = Math.round(cfg.post_roll_duration * 1000);
     minSpeechSamples = Math.round(cfg.min_speech_duration * 16000);  // duration(s) → samples(16kHz)
+    forcedCutSilenceFrames = cfg.forced_cut_silence_frames ?? 3;
   } else {
     // Fallback: sensitivity only
     const sens = config.sensitivity || 'medium';
@@ -69,6 +71,11 @@ async function init(config: import('./types').VadInitConfig) {
     else if (sens === 'high') { speechStartFrames = 10; speechEndFrames = 50; }
     else { speechStartFrames = 20; speechEndFrames = 100; }
   }
+
+  console.log(`[VAD] init: maxSpeechFrames=${maxSpeechFrames} speechStartFrames=${speechStartFrames} speechEndFrames=${speechEndFrames} preRollMs=${preRollMs} postRollMs=${postRollMs} forcedCutSil=${forcedCutSilenceFrames}`);
+
+  // Report config to main thread for logging
+  post({ type: 'error', message: `[VAD config] maxSpeechFrames=${maxSpeechFrames} forcedCutSil=${forcedCutSilenceFrames} speechEndFrames=${speechEndFrames}` });
 
   post({ type: 'progress', phase: 'ort', pct: 100 });
 
@@ -180,6 +187,18 @@ async function processChunk(chunk: Float32Array) {
         const fStart = fullAudio.length - chunk.length + Math.max(0, Math.floor(t * 160));
         const fEnd = Math.min(fullAudio.length, fStart + 160);
         for (let s = fStart; s < fEnd; s++) speechSamples.push(fullAudio[s]);
+
+        // Hard forced cut: no silence detected, cut at exact maxSpeechFrames
+        if (segmentSpeechFrames >= maxSpeechFrames) {
+          console.log(`[VAD] HARD CUT (no silence): segFrames=${segmentSpeechFrames} maxFrames=${maxSpeechFrames} segMs=${(segmentSpeechFrames*10).toFixed(0)}`);
+          const cutPoint = fullAudio.length - chunk.length + Math.floor(t * 160);
+          emitSpeech('forced');
+          speechStart = Math.max(0, cutPoint - preRollSamples);
+          speechSamples = [];
+          for (let s = speechStart; s < cutPoint; s++) speechSamples.push(fullAudio[s]);
+          segmentSpeechFrames = 0;
+          silenceFrames = 0;
+        }
       }
     } else {
       speechFrames = 0;
@@ -193,11 +212,14 @@ async function processChunk(chunk: Float32Array) {
           for (let s = fullAudio.length - chunk.length + Math.floor(t * 160); s < postEnd; s++) {
             speechSamples.push(fullAudio[s]);
           }
+          console.log(`[VAD] SILENCE CUT: silenceFrames=${silenceFrames} segmentMs=${(segmentSpeechFrames*10).toFixed(0)}ms`);
           emitSpeech('silence');
           vadState = 'SILENCE';
           silenceFrames = 0;
           post({ type: 'status', status: 'listening' });
-        } else if (segmentSpeechFrames >= maxSpeechFrames && silenceFrames >= 3) {
+        } else if (segmentSpeechFrames >= maxSpeechFrames && silenceFrames >= forcedCutSilenceFrames) {
+          // Forced cut: exceeded max duration + brief silence at word boundary
+          console.log(`[VAD] FORCED CUT: segFrames=${segmentSpeechFrames} maxFrames=${maxSpeechFrames} silFrames=${silenceFrames} segMs=${(segmentSpeechFrames*10).toFixed(0)}`);
           const postEnd = Math.min(
             fullAudio.length,
             fullAudio.length - chunk.length + Math.floor(t * 160) + postRollSamples

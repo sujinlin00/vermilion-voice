@@ -1,10 +1,11 @@
-import { Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import type { App } from 'obsidian';
 import { VoiceSoloView, VIEW_TYPE } from './view';
 import type { VoiceSoloSettings, AppConfig, VadConfig } from './types';
 import type { VadToMain, AsrToMain } from './types';
 import { TextProcessor } from './text-processor';
 import { FlacEncoder } from './flac-encoder';
+import { AudioCaptureManager } from './audio-capture';
 
 // CDN URL for ONNX Runtime WASM (wasm-only bundle, ~11MB)
 const ORT_WASM_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort-wasm-simd-threaded.wasm';
@@ -135,9 +136,10 @@ export default class VoiceSoloPlugin extends Plugin {
   private audioCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  audioCaptureMgr: AudioCaptureManager | null = null;
   private pluginDir: string = '';
   private textProc: TextProcessor = new TextProcessor();
-  private appConfig: AppConfig | null = null;
+  appConfig: AppConfig | null = null;
   private vadCfg: VadConfig | null = null;
   private vadReady = false;
   private asrReady = false;
@@ -154,6 +156,7 @@ export default class VoiceSoloPlugin extends Plugin {
   private workerCleanupTimer: number = 0;
   private puncTimer: number = 0;
   private puncPending: { text: string; startMs: number; endMs: number; view: VoiceSoloView } | null = null;
+  private puncFromCarry: boolean = false;
 
   private addLog(msg: string) {
     const ts = Date.now();
@@ -175,6 +178,9 @@ export default class VoiceSoloPlugin extends Plugin {
   }
 
   async onload() {
+    const vaultRoot = (this.app.vault.adapter as any).basePath as string;
+    this.pluginDir = vaultRoot + '/.obsidian/plugins/voice-solo';
+
     await this.loadSettings();
     this.loadAppConfig();
 
@@ -193,9 +199,6 @@ export default class VoiceSoloPlugin extends Plugin {
       name: 'Open voice recognition panel',
       callback: () => this.toggleView(),
     });
-
-    const vaultRoot = (this.app.vault.adapter as any).basePath as string;
-    this.pluginDir = vaultRoot + '/.obsidian/plugins/voice-solo';
   }
 
   onunload() {
@@ -311,7 +314,12 @@ export default class VoiceSoloPlugin extends Plugin {
     this.puncPending = null;
     this.pendingSegments = [];
 
-    // Stop mic first
+    // Stop audio capture
+    if (this.audioCaptureMgr) {
+      this.audioCaptureMgr.stop();
+      this.audioCaptureMgr = null;
+    }
+    // Legacy fields (may still be set by old code paths)
     if (this.workletNode) { this.workletNode.disconnect(); this.workletNode = null; }
     if (this.micStream) { this.micStream.getTracks().forEach(t => t.stop()); this.micStream = null; }
     if (this.audioCtx) { this.audioCtx.close(); this.audioCtx = null; }
@@ -445,6 +453,7 @@ export default class VoiceSoloPlugin extends Plugin {
     // Init VAD worker (slice copies — each worker gets its own ArrayBuffer)
     const vadBuf = vadModelBuf.slice(0);
     console.log(`[VoiceSolo] VAD postMessage: modelBuf=${vadBuf.byteLength} wasm=${simdWasm.byteLength}`);
+    console.log(`[VoiceSolo] VAD config: sensitivity=${this.settings.vadSensitivity} vadCfg=`, JSON.stringify(this.vadCfg));
     this.vadWorker.postMessage({
       type: 'init',
       config: {
@@ -552,7 +561,9 @@ export default class VoiceSoloPlugin extends Plugin {
         this.addLog(`ASR punc_result: "${msg.text.slice(0, 40)}..."`);
         if (this.puncTimer) { clearTimeout(this.puncTimer); this.puncTimer = 0; }
         this.puncPending = null;
-        this.handleAsrResult(msg.text, msg.startMs, msg.endMs, undefined, view);
+        const fromCarry = this.puncFromCarry;
+        this.puncFromCarry = false;
+        this.handleAsrResult(msg.text, msg.startMs, msg.endMs, undefined, view, undefined, fromCarry);
         break;
       }
       case 'error':
@@ -570,7 +581,7 @@ export default class VoiceSoloPlugin extends Plugin {
   dispatchSegment(audioBuf: ArrayBuffer, startMs: number, endMs: number, reason: 'silence' | 'forced' = 'silence') {
     if (this.asrBusy) {
       this.addLog(`DISPATCH queue (busy, pending=${this.pendingSegments.length + 1})`);
-      if (this.pendingSegments.length < 3) {
+      if (this.pendingSegments.length < 5) {
         this.pendingSegments.push({
           audio: new Float32Array(audioBuf),
           startMs,
@@ -599,8 +610,10 @@ export default class VoiceSoloPlugin extends Plugin {
   private handleAsrResult(
     text: string, startMs: number, endMs: number,
     reason: string | undefined, view: VoiceSoloView, perf?: any,
+    isCarryCombined: boolean = false,
   ) {
     const carry = this.textProc.getCarryBuffer();
+    this.addLog(`[handleAsrResult] text="${text.slice(0,30)}..." reason=${reason} carry="${carry.slice(0,20)}" isCarryCombined=${isCarryCombined}`);
 
     if (carry) {
       // Has carry from previous forced segment: combine and re-punctuate
@@ -614,6 +627,7 @@ export default class VoiceSoloPlugin extends Plugin {
         this.puncTimer = 0;
         this.puncPending = null;
         this.asrBusy = false;
+        this.textProc.forceNewline();
         const parts = this.textProc.tick(combined, startMs, endMs);
         for (const p of parts) {
           if (p.text) {
@@ -623,12 +637,15 @@ export default class VoiceSoloPlugin extends Plugin {
         }
         this.drainPending();
       }, 5000);
+      this.puncFromCarry = true;
       this.asrWorker!.postMessage({ type: 'punc', text: combined, startMs, endMs });
       return;
     }
 
     // No carry
-    if (reason === 'forced') {
+    if (isCarryCombined) this.textProc.forceNewline();
+
+    if (reason === 'forced' || isCarryCombined) {
       // Forced segment: split at second-to-last punctuation, store carry
       const outputPart = this.textProc.setCarryText(text);
       if (outputPart) {
@@ -745,43 +762,78 @@ export default class VoiceSoloPlugin extends Plugin {
   // ---- Audio capture ----
 
   async startMic(view: VoiceSoloView) {
-    this.addLog('[mic] getUserMedia...');
-    const audioConstraints: any = {
-      channelCount: 1, echoCancellation: true, noiseSuppression: true,
-    };
-    if (this.settings.audioDevice) {
-      audioConstraints.deviceId = { exact: this.settings.audioDevice };
-    }
-    this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: audioConstraints,
-    });
-    this.addLog('[mic] got stream');
-
-    this.audioCtx = new AudioContext();
-    this.addLog(`[mic] AudioContext sampleRate=${this.audioCtx.sampleRate}`);
-
     const fs: any = (window as any).require?.('fs') || require('fs');
     const workletCode = fs.readFileSync(this.pluginDir + '/mic_worklet.js', 'utf-8');
-    const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
-    await this.audioCtx.audioWorklet.addModule(URL.createObjectURL(workletBlob));
-    this.addLog('[mic] worklet loaded');
 
-    this.workletNode = new AudioWorkletNode(this.audioCtx, 'mic-processor');
-    this.workletNode.port.onmessage = async (e) => {
-      // Save copy for FLAC (before transferring to VAD)
-      if (this.flacEncoder) {
-        const flacFs: any = (window as any).require?.('fs') || require('fs');
-        await this.flacEncoder.processChunk(new Float32Array(e.data), flacFs);
-      }
-      // Forward to VAD (zero-copy transfer)
-      if (this.vadWorker) {
-        this.vadWorker.postMessage({ type: 'chunk', data: e.data }, [e.data]);
-      }
-    };
+    const audioCfg = this.appConfig?.audio_capture;
 
-    const source = this.audioCtx.createMediaStreamSource(this.micStream);
-    source.connect(this.workletNode);
-    this.addLog('[mic] connected');
+    // Use AudioCaptureManager for unified mic + system audio handling
+    this.audioCaptureMgr = new AudioCaptureManager(
+      {
+        onData: async (data: Float32Array) => {
+          // FLAC recording
+          if (this.flacEncoder) {
+            const flacFs: any = (window as any).require?.('fs') || require('fs');
+            await this.flacEncoder.processChunk(data, flacFs);
+          }
+          // Forward to VAD (transfer buffer)
+          if (this.vadWorker) {
+            const buf = data.buffer.slice(0);
+            this.vadWorker.postMessage({ type: 'chunk', data: buf }, [buf]);
+          }
+        },
+        onStatus: (status) => {
+          this.addLog(`[audio] status: ${status}`);
+        },
+        onError: (msg) => {
+          this.addLog(`[audio] error: ${msg}`);
+          new Notice(msg, 5000);
+        },
+      },
+      workletCode,
+      audioCfg || { mic_enabled: true, output_enabled: false, output_source: 'system', mix_mode: 'merge' },
+    );
+
+    this.addLog('[audio] starting capture...');
+    this.audioCtx = await this.audioCaptureMgr.start(this.settings.audioDevice || undefined);
+    this.addLog(`[audio] started (sampleRate=${this.audioCtx.sampleRate})`);
+  }
+
+  /** Restart audio capture with current config (e.g. after settings change). */
+  async restartAudioCapture() {
+    if (!this.audioCaptureMgr) return; // not running
+    const fs: any = (window as any).require?.('fs') || require('fs');
+    const workletCode = fs.readFileSync(this.pluginDir + '/mic_worklet.js', 'utf-8');
+    const audioCfg = this.appConfig?.audio_capture;
+
+    // Stop current capture
+    this.audioCaptureMgr.stop();
+    this.audioCaptureMgr = null;
+    this.audioCtx = null;
+
+    // Recreate with new config
+    this.audioCaptureMgr = new AudioCaptureManager(
+      {
+        onData: async (data: Float32Array) => {
+          if (this.flacEncoder) {
+            const flacFs: any = (window as any).require?.('fs') || require('fs');
+            await this.flacEncoder.processChunk(data, flacFs);
+          }
+          if (this.vadWorker) {
+            const buf = data.buffer.slice(0);
+            this.vadWorker.postMessage({ type: 'chunk', data: buf }, [buf]);
+          }
+        },
+        onStatus: (status) => { this.addLog(`[audio] status: ${status}`); },
+        onError: (msg) => { this.addLog(`[audio] error: ${msg}`); new Notice(msg, 5000); },
+      },
+      workletCode,
+      audioCfg || { mic_enabled: true, output_enabled: false, output_source: 'system', mix_mode: 'merge' },
+    );
+
+    this.addLog('[audio] restarting capture...');
+    this.audioCtx = await this.audioCaptureMgr.start(this.settings.audioDevice || undefined);
+    this.addLog(`[audio] restarted (sampleRate=${this.audioCtx.sampleRate})`);
   }
 
   // ---- Settings ----
@@ -814,16 +866,45 @@ export default class VoiceSoloPlugin extends Plugin {
       this.addLog(`[config] failed to load settings.json: ${e.message}`);
     }
 
-    // Apply settings.json as base, override with VoiceSoloSettings
-    const tpCfg = this.appConfig?.text_processor || {};
+    // Sync UI settings into appConfig
+    this.syncUiToAppConfig();
+  }
+
+  /** Sync UI settings (this.settings) into appConfig and rebuild TextProcessor/VadConfig. */
+  syncUiToAppConfig() {
+    if (!this.appConfig) this.appConfig = { text_processor: {} as any, vad: {} as any };
+    if (!this.appConfig.text_processor) this.appConfig.text_processor = {} as any;
+    if (!this.appConfig.vad) this.appConfig.vad = {} as any;
+    if (!this.vadCfg) this.vadCfg = this.appConfig.vad;
+
     const s = this.settings;
+    const tp = this.appConfig.text_processor;
+    const vad = this.appConfig.vad;
+
+    // UI → settings.json mapping
+    tp.silence_threshold = s.silenceThreshold;
+    tp.max_line_chars = s.maxLineChars;
+    vad.max_speech_duration = s.maxSpeechDuration;
+    // outputInterval: only in UI, not in settings.json
+
     this.textProc = new TextProcessor({
-      silence_threshold: s.silenceThreshold ?? tpCfg.silence_threshold,
-      max_line_chars: s.maxLineChars ?? tpCfg.max_line_chars,
-      dedup_window: tpCfg.dedup_window,
+      silence_threshold: tp.silence_threshold,
+      max_line_chars: tp.max_line_chars,
+      dedup_window: tp.dedup_window,
+      newline_punctuation: tp.newline_punctuation,
+      carry_punctuation: tp.carry_punctuation,
     });
-    if (this.vadCfg) {
-      this.vadCfg.max_speech_duration = s.maxSpeechDuration ?? this.vadCfg.max_speech_duration;
+  }
+
+  /** Write current appConfig to settings.json. */
+  saveAppConfig() {
+    try {
+      const fs: any = (globalThis as any).require?.('fs') || require('fs');
+      const path: any = (globalThis as any).require?.('path') || require('path');
+      const cfgPath = path.join(this.pluginDir, 'settings.json');
+      fs.writeFileSync(cfgPath, JSON.stringify(this.appConfig, null, 2), 'utf-8');
+    } catch (e: any) {
+      this.addLog(`[config] failed to save settings.json: ${e.message}`);
     }
   }
 }
@@ -956,6 +1037,8 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         d.onChange(async (v) => {
           this.plugin.settings.vadSensitivity = v as 'low' | 'medium' | 'high';
           await this.plugin.saveSettings();
+          this.plugin.syncUiToAppConfig();
+          this.plugin.saveAppConfig();
         });
       });
 
@@ -985,6 +1068,8 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         d.onChange(async (v) => {
           this.plugin.settings.silenceThreshold = Number(v);
           await this.plugin.saveSettings();
+          this.plugin.syncUiToAppConfig();
+          this.plugin.saveAppConfig();
         });
       });
 
@@ -1000,6 +1085,8 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         d.onChange(async (v) => {
           this.plugin.settings.maxLineChars = Number(v);
           await this.plugin.saveSettings();
+          this.plugin.syncUiToAppConfig();
+          this.plugin.saveAppConfig();
         });
       });
 
@@ -1015,13 +1102,69 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         d.onChange(async (v) => {
           this.plugin.settings.maxSpeechDuration = Number(v);
           await this.plugin.saveSettings();
+          this.plugin.syncUiToAppConfig();
+          this.plugin.saveAppConfig();
         });
       });
 
     // ═══ 音频设置 ═══
     this.sectionHeading(containerEl, '音频设置');
 
+    const audioCfg = this.plugin.appConfig?.audio_capture || { mic_enabled: true, output_enabled: false, output_source: 'system', mix_mode: 'merge' };
+
+    // 1. Audio capture mode (first)
+    const updateMicEnabled = () => {
+      const disabled = audioCfg.output_enabled && !audioCfg.mic_enabled;
+      if (audioSelectEl) audioSelectEl.disabled = disabled;
+      if (micSettingRow) {
+        const info = micSettingRow.querySelector('.setting-item-info') as HTMLElement;
+        if (info) info.style.opacity = disabled ? '0.4' : '1';
+        micSettingRow.classList.toggle('voice-solo-setting-disabled', disabled);
+      }
+    };
+
+    new Setting(containerEl)
+      .setName('音频采集模式')
+      .setDesc('选择音频来源（切换后立即生效）')
+      .addDropdown(d => {
+        d.addOption('merge', '合并（推荐）');
+        d.addOption('mic', '仅麦克风');
+        d.addOption('output', '仅桌面音频');
+        const current = audioCfg.mix_mode === 'merge' && audioCfg.output_enabled ? 'merge'
+          : audioCfg.output_enabled && !audioCfg.mic_enabled ? 'output'
+          : 'mic';
+        d.setValue(current);
+        d.onChange(async (v) => {
+          if (v === 'mic') {
+            audioCfg.mic_enabled = true;
+            audioCfg.output_enabled = false;
+          } else if (v === 'output') {
+            audioCfg.mic_enabled = false;
+            audioCfg.output_enabled = true;
+          } else {
+            audioCfg.mic_enabled = true;
+            audioCfg.output_enabled = true;
+            audioCfg.mix_mode = 'merge';
+          }
+          this.plugin.syncUiToAppConfig();
+          this.plugin.saveAppConfig();
+          updateMicEnabled();
+          if (this.plugin.audioCaptureMgr) {
+            try {
+              await this.plugin.restartAudioCapture();
+              new Notice('音频采集模式已切换');
+            } catch (e: any) {
+              new Notice('音频切换失败: ' + e.message);
+            }
+          } else {
+            new Notice('下次开始识别时生效');
+          }
+        });
+      });
+
+    // 2. Mic device (second, grayed out when only desktop audio)
     let audioSelectEl: HTMLSelectElement;
+    let micSettingRow: HTMLElement;
 
     const audioSetting = new Setting(containerEl)
       .setName('麦克风设备')
@@ -1037,6 +1180,9 @@ class VoiceSoloSettingTab extends PluginSettingTab {
         });
       });
 
+    micSettingRow = audioSetting.settingEl;
+    updateMicEnabled();
+
     audioSetting.addExtraButton(btn => {
       btn.setIcon('refresh-cw');
       btn.setTooltip('刷新设备列表');
@@ -1045,7 +1191,6 @@ class VoiceSoloSettingTab extends PluginSettingTab {
       });
     });
 
-    // 首次显示时自动刷新设备列表
     this.refreshAudioDevices(audioSelectEl);
 
     // ═══ 高级 ═══

@@ -175,12 +175,15 @@ async function processSegment(audio: Float32Array, startMs: number, endMs: numbe
     // PUNC (skip for English-heavy segments — CT-Transformer is Chinese-only)
     // Also skip when skipPunc=true (carry-over will re-punctuate combined text)
     let puncMs = 0;
+    const rawText = text;
     if (puncSession && text.length > 0 && !isMostlyAscii(text) && !skipPunc) {
       post({ type: 'status', status: 'punc' });
       const tPunc = performance.now();
       text = await runPunc(text);
       puncMs = performance.now() - tPunc;
     }
+    const hasPunc = /[，。！？、；：""''（）【】《》…—\-,.!?;:]/.test(text);
+    console.log(`[ASR] skipPunc=${skipPunc} raw="${rawText.slice(0,30)}..." final="${text.slice(0,30)}..." hasPunc=${hasPunc}`);
 
     const perf: PerfStats = {
       vadMs: 0,
