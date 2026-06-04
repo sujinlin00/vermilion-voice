@@ -463,7 +463,9 @@ export default class VermilionVoicePlugin extends Plugin {
         baseDir,
         modelsJsonPath,
         this.addLog.bind(this),
-        (_phase, _pct) => {},
+        (phase, pct) => {
+          view.setStatus('loading', `Downloading ${phase}... ${pct}%`);
+        },
       );
     }
 
