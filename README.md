@@ -36,23 +36,6 @@ cd /path/to/vault/.obsidian/plugins/
 unzip vermilion-voice-0.1.0.zip -d vermilion-voice/
 ```
 
-### Manual (individual files)
-
-Download all files from [Releases](https://github.com/sujinlin00/vermilion-voice/releases) and place them in `.obsidian/plugins/vermilion-voice/`:
-
-```
-vermilion-voice/
-├── main.js
-├── manifest.json
-├── styles.css
-├── worker-vad.js
-├── worker-asr.js
-├── mic_worklet.js
-├── models.json
-├── settings.json
-└── flac.js
-```
-
 ## Usage
 
 1. Enable the plugin — a microphone icon appears in the left ribbon

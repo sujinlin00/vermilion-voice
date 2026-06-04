@@ -36,23 +36,6 @@ cd /path/to/vault/.obsidian/plugins/
 unzip vermilion-voice-0.1.0.zip -d vermilion-voice/
 ```
 
-### 手动安装（逐文件）
-
-从 [Releases](https://github.com/sujinlin00/vermilion-voice/releases) 下载所有文件，放入 `.obsidian/plugins/vermilion-voice/`：
-
-```
-vermilion-voice/
-├── main.js
-├── manifest.json
-├── styles.css
-├── worker-vad.js
-├── worker-asr.js
-├── mic_worklet.js
-├── models.json
-├── settings.json
-└── flac.js
-```
-
 ## 使用方法
 
 1. 启用插件 — 左侧功能区出现麦克风图标
