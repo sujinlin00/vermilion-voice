@@ -210,6 +210,9 @@ export class TextProcessor {
   /** Clear carry buffer. */
   clearCarryBuffer() { this.carryBuffer = ''; }
 
+  /** Set hasOutput flag (for restart scenarios where we want \n\n on next output). */
+  setHasOutput(v: boolean) { this.hasOutput = v; }
+
   reset() {
     this.buffer = '';
     this.sentPos = 0;

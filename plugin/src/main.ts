@@ -938,7 +938,7 @@ export default class VermilionVoicePlugin extends Plugin {
     const workletCode = fs.readFileSync(this.pluginDir + '/mic_worklet.js', 'utf-8');
     const audioCfg = this.appConfig?.audio_capture;
 
-    // Flush and reset TextProcessor so next output starts as new paragraph
+    // Flush and reset TextProcessor, preserving hasOutput for proper \n\n formatting
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
     const view = leaves.length > 0 ? leaves[0].view as VermilionVoiceView : null;
     const parts = this.textProc.flush(Date.now());
@@ -950,7 +950,9 @@ export default class VermilionVoicePlugin extends Plugin {
         }
       }
     }
+    // Reset buffer state but keep hasOutput so next output gets \n\n prefix
     this.textProc.reset();
+    this.textProc.setHasOutput(true);
 
     // Reset VAD state
     if (this.vadWorker) {
