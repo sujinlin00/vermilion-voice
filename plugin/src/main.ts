@@ -101,12 +101,12 @@ function isModelValid(dest: string, fs: any): boolean {
 
 type ModelProgress = Record<string, number>; // key → 0~100, or bytes if < 0
 
-/** Format combined progress string: "vad:50%|asr:1.2MB|punc:0%" */
+/** Format combined progress string: "vad:50%|asr: 1%|punc: 0%" */
 function formatProgress(progress: ModelProgress): string {
   return Object.entries(progress)
     .map(([k, v]) => {
-      if (v < 0) return `${k}:${(-v / 1024 / 1024).toFixed(1)}MB`; // negative = bytes received
-      return `${k}:${v}%`;
+      if (v < 0) return `${k}:${(-v / 1024 / 1024).toFixed(1)}MB`;
+      return `${k}:${String(v).padStart(3)}%`;
     })
     .join('|');
 }
@@ -541,7 +541,7 @@ export default class VermilionVoicePlugin extends Plugin {
         modelsJsonPath,
         this.addLog.bind(this),
         (status) => {
-          view.setStatus('loading', status);
+          view.setStatus('loading', `模型下载 ${status}`);
         },
       );
     }
