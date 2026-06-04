@@ -33,20 +33,22 @@ function downloadFile(url: string, dest: string, fs: any): Promise<void> {
     const dir = dest.replace(/[/\\][^/\\]*$/, '');
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
     const file = fs.createWriteStream(dest);
+    const cleanup = () => { try { file.close(); if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch {} };
     require('https').get(url, { headers: { 'User-Agent': 'VermilionVoice/0.1.0' } }, (res: any) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
-        file.close();
+        cleanup();
         downloadFile(res.headers.location, dest, fs).then(resolve, reject);
         return;
       }
       if (res.statusCode !== 200) {
-        file.close();
+        cleanup();
         reject(new Error(`HTTP ${res.statusCode}`));
         return;
       }
       res.pipe(file);
       file.on('finish', () => { file.close(); resolve(); });
-    }).on('error', reject);
+      file.on('error', (e: any) => { cleanup(); reject(e); });
+    }).on('error', (e: any) => { cleanup(); reject(e); });
   });
 }
 
@@ -73,7 +75,9 @@ async function ensureModels(
     try { fs.mkdirSync(modelDir, { recursive: true }); } catch {}
     for (const f of entry.files) {
       const dest = `${modelDir}/${f}`;
-      if (!fs.existsSync(dest)) {
+      const exists = fs.existsSync(dest);
+      const isEmpty = exists && fs.statSync(dest).size === 0;
+      if (!exists || isEmpty) {
         const url = `${entry.url}/${f}`;
         addLog(`Downloading ${key}/${f}...`);
         onProgress(key, 0);
