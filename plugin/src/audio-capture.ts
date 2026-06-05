@@ -163,33 +163,42 @@ export class AudioCaptureManager {
 
   private async connectOutput() {
     try {
-      // Electron/Obsidian: use desktopCapturer for reliable audio capture
-      const { ipcRenderer } = require('electron');
-      const desktopCapturer = (navigator.mediaDevices as any);
-
-      // Try Electron desktopCapturer first (more reliable in Electron)
       let stream: MediaStream | null = null;
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 
-      try {
-        // Electron: getDisplayMedia with audio:true and chromeMediaSource
-        stream = await desktopCapturer.getUserMedia({
-          audio: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
+      if (!isMac) {
+        // Windows/Linux: Electron desktopCapturer (more reliable)
+        try {
+          stream = await (navigator.mediaDevices as any).getUserMedia({
+            audio: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+              },
             },
-          },
-          video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: 'screen:0:0',
-              maxWidth: 1,
-              maxHeight: 1,
-              maxFrameRate: 1,
+            video: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: 'screen:0:0',
+                maxWidth: 1,
+                maxHeight: 1,
+                maxFrameRate: 1,
+              },
             },
-          },
-        });
-      } catch {
-        // Fallback: standard getDisplayMedia (browser-like behavior)
+          });
+        } catch {
+          // Fallback to getDisplayMedia
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              suppressLocalAudioPlayback: false,
+            } as any,
+          });
+        }
+      } else {
+        // macOS: standard getDisplayMedia, user selects screen and checks "Share system audio"
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
           audio: {
