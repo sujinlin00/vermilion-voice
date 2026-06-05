@@ -164,8 +164,9 @@ export class TextProcessor {
     this.buffer = '';
     this.sentPos = 0;
     this.needsNewline = false;
-    // Mark session boundary: next session's first segment needs \n\n
-    this.needsSessionNewline = true;
+    // Mark session boundary only if this session produced output
+    // (avoids double \n\n when flush output already has it)
+    if (this.hasOutput) this.needsSessionNewline = true;
     return results;
   }
 
