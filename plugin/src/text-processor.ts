@@ -45,13 +45,20 @@ export class TextProcessor {
   private carryPunctuation = '，。！？、；：,.!?;:';  // carry：所有标点
 
   constructor(cfg?: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number; newline_punctuation?: string; carry_punctuation?: string }) {
-    if (cfg) {
-      if (cfg.silence_threshold != null) this.silenceThresholdSec = cfg.silence_threshold;
-      if (cfg.max_line_chars != null) this.maxLineChars = cfg.max_line_chars;
-      if (cfg.dedup_window != null) this.dedupWindowSec = cfg.dedup_window;
-      if (cfg.newline_punctuation != null) this.newlinePunctuation = cfg.newline_punctuation;
-      if (cfg.carry_punctuation != null) this.carryPunctuation = cfg.carry_punctuation;
-    }
+    if (cfg) this.applyConfig(cfg);
+  }
+
+  /** Update config without recreating — preserves all runtime state. */
+  updateConfig(cfg: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number; newline_punctuation?: string; carry_punctuation?: string }) {
+    this.applyConfig(cfg);
+  }
+
+  private applyConfig(cfg: { silence_threshold?: number; max_line_chars?: number; dedup_window?: number; newline_punctuation?: string; carry_punctuation?: string }) {
+    if (cfg.silence_threshold != null) this.silenceThresholdSec = cfg.silence_threshold;
+    if (cfg.max_line_chars != null) this.maxLineChars = cfg.max_line_chars;
+    if (cfg.dedup_window != null) this.dedupWindowSec = cfg.dedup_window;
+    if (cfg.newline_punctuation != null) this.newlinePunctuation = cfg.newline_punctuation;
+    if (cfg.carry_punctuation != null) this.carryPunctuation = cfg.carry_punctuation;
   }
 
   // ---- Public ----

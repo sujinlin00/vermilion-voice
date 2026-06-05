@@ -1042,16 +1042,14 @@ export default class VermilionVoicePlugin extends Plugin {
     vad.max_speech_duration = s.maxSpeechDuration;
     // outputInterval: only in UI, not in settings.json
 
-    // Preserve needsSessionNewline from old TextProcessor (for session boundary across config changes)
-    const oldNeedsNewline = this.textProc.getNeedsSessionNewline();
-    this.textProc = new TextProcessor({
+    // Update config in-place — preserves all runtime state (hasOutput, buffer, etc.)
+    this.textProc.updateConfig({
       silence_threshold: tp.silence_threshold,
       max_line_chars: tp.max_line_chars,
       dedup_window: tp.dedup_window,
       newline_punctuation: tp.newline_punctuation,
       carry_punctuation: tp.carry_punctuation,
     });
-    if (oldNeedsNewline) this.textProc.setNeedsSessionNewline(true);
   }
 
   /** Write current appConfig to settings.json. */
