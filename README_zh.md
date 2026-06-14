@@ -2,7 +2,7 @@
 
 [English](./README.md) | 简体中文
 
-Obsidian 本地语音识别插件 — 基于 ONNX 运行时的实时语音转写，无需云端。
+Obsidian 本地语音识别插件 — 基于 ONNX 运行时的实时语音转写。推理完全本地运行；首次使用需联网下载模型（约 500MB，来自 ModelScope），后续离线可用。
 
 ## 功能特性
 
@@ -40,7 +40,7 @@ unzip vermilion-voice-0.1.1.zip -d vermilion-voice/
 
 1. 启用插件 — 左侧功能区出现麦克风图标
 2. 点击图标打开 Vermilion Voice 面板
-3. 点击"开始识别" — 首次使用会自动下载模型（约 50MB，带进度显示）
+3. 点击"开始识别" — 首次使用会自动下载模型（约 500MB：VAD 0.5MB + ASR 228MB + PUNC 270MB，带进度显示）
 4. 说话 — 转写文本实时显示
 5. 点击"停止" — 结束识别
 
@@ -68,13 +68,13 @@ vermilion-voice/
 ├── src/                  TypeScript 源码
 ├── lib/                  Vendored 第三方依赖（ONNX Runtime、FLAC 编码器）
 ├── plugin/               构建输出（gitignored）
-├── docs/                 文档
+├── docs/                 开发文档（仅本地）
 ├── esbuild.config.mjs    构建脚本
 ├── package.json          npm 配置
 └── tsconfig.json         TypeScript 配置
 ```
 
-详见 [docs/02-architecture.md](./02-architecture.md)。
+详见 [docs/02-architecture.md](./docs/02-architecture.md)。
 
 ## 技术细节
 
@@ -121,4 +121,4 @@ AudioContext (48kHz)
 
 ## 许可证
 
-[MIT](../LICENSE)
+[MIT](LICENSE)

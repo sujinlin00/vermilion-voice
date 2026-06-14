@@ -1,7 +1,7 @@
 {
   "name": "vermilion-voice",
   "version": "0.1.1",
-  "description": "Local speech recognition in Obsidian — ONNX + WebGPU, no cloud",
+  "description": "Local speech recognition in Obsidian — ONNX WASM CPU inference. First-time model download (~500MB) requires internet; offline after setup.",
   "main": "plugin/main.js",
   "scripts": {
     "build": "node esbuild.config.mjs production",

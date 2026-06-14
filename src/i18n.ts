@@ -11,7 +11,7 @@ const translations: Record<Lang, Record<string, string>> = {
 
     // Settings — Model
     'settings.inference': '推理精度',
-    'settings.inference.desc': '标准：ONNX WASM CPU 本地推理，当前可用 | 高性能：ONNX WebGPU 推理（计划支持）',
+    'settings.inference.desc': '标准：ONNX WASM CPU 本地推理（当前可用） | 高性能：ONNX WebGPU 推理（尚未实现，预留选项）',
     'settings.inference.standard': '标准 (ONNX WASM)',
     'settings.inference.performance': '高性能 (ONNX WebGPU)',
     'settings.modelDir': '模型目录',
@@ -108,7 +108,7 @@ const translations: Record<Lang, Record<string, string>> = {
 
     // Settings — Model
     'settings.inference': 'Inference Mode',
-    'settings.inference.desc': 'Standard: ONNX WASM CPU local inference (available) | Performance: ONNX WebGPU inference (planned)',
+    'settings.inference.desc': 'Standard: ONNX WASM CPU local inference (available) | Performance: ONNX WebGPU inference (not yet implemented, reserved)',
     'settings.inference.standard': 'Standard (ONNX WASM)',
     'settings.inference.performance': 'Performance (ONNX WebGPU)',
     'settings.modelDir': 'Model Directory',
