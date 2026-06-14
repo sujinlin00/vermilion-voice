@@ -24,6 +24,7 @@ export interface VermilionVoiceSettings {
   outputFolder: string;
   saveAudio: boolean;
   recordingFolder: string;
+  organizeByMonth: boolean;
   postProcessEnabled: boolean;
 
   // Audio

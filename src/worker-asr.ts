@@ -4,7 +4,7 @@
 // runs ASR ONNX + decode + PUNC, outputs text results.
 
 import type { AsrToMain, MainToAsr, PerfStats } from './types';
-import { StreamingFbankProcessor, loadCMVN } from '../lib/streaming_fbank.js';
+import { StreamingFbankProcessor, loadCMVN } from './streaming_fbank.js';
 import * as ort from '../lib/ort.bundle.min.mjs';
 
 // ---- State ----

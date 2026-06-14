@@ -20,13 +20,15 @@ const translations: Record<Lang, Record<string, string>> = {
 
     // Settings — Output
     'settings.outputToNote': '输出至文档',
-    'settings.outputToNote.desc': '开启后将转录文本写入笔记文件，关闭后仅在面板中显示',
-    'settings.outputFolder': '转录文本路径',
-    'settings.outputFolder.desc': '转录文本的输出路径（相对于保险库根目录）',
+    'settings.outputToNote.desc': '开启后将转写文本写入笔记文件，关闭后仅在面板中显示',
+    'settings.outputFolder': '转写文本路径',
+    'settings.outputFolder.desc': '转写文本的输出路径（相对于保险库根目录）',
     'settings.saveAudio': '保存录音文件',
     'settings.saveAudio.desc': '录音结束后保存音频文件',
     'settings.recordingFolder': '录音文件路径',
     'settings.recordingFolder.desc': '录音文件的输出路径（相对于保险库根目录）',
+    'settings.organizeByMonth': '按月分组',
+    'settings.organizeByMonth.desc': '按月份创建子目录，转录文本和录音文件存入对应月份文件夹（例: 2026-06/）',
     'settings.postProcess': '停止时进行二次识别',
     'settings.postProcess.desc': '录音结束后使用更高精度模型重新识别整段音频，输出完整文本',
 
@@ -37,7 +39,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'settings.vadSensitivity.medium': '中（默认）',
     'settings.vadSensitivity.low': '低（长句慢切）',
     'settings.outputInterval': '文本推送间隔',
-    'settings.outputInterval.desc': '转录文本输出到笔记的刷新频率',
+    'settings.outputInterval.desc': '转写文本输出到笔记的刷新频率',
     'settings.outputInterval.1s': '1 秒（实时）',
     'settings.outputInterval.3s': '3 秒（默认）',
     'settings.outputInterval.5s': '5 秒（省流）',
@@ -122,6 +124,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'settings.saveAudio.desc': 'Save audio file after recording stops',
     'settings.recordingFolder': 'Recording Path',
     'settings.recordingFolder.desc': 'Output path for audio recordings (relative to vault root)',
+    'settings.organizeByMonth': 'Organize by Month',
+    'settings.organizeByMonth.desc': 'Create monthly subdirectories for transcription text and recordings (e.g. 2026-06/)',
     'settings.postProcess': 'Re-recognize on Stop',
     'settings.postProcess.desc': 'Re-recognize the entire audio with higher accuracy model after recording stops',
 

@@ -7,7 +7,7 @@
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": ".",
+    "outDir": "plugin",
     "rootDir": "src",
     "types": ["obsidian"],
     "allowImportingTsExtensions": true,

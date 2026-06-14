@@ -7,7 +7,7 @@
 //   4. VAD resumes with fresh audio after ASR completes
 
 import type { InitConfig, MainToWorker, WorkerToMain } from './types';
-import { StreamingFbankProcessor, loadCMVN } from '../lib/streaming_fbank.js';
+import { StreamingFbankProcessor, loadCMVN } from './streaming_fbank.js';
 
 import * as ort from '../lib/ort.bundle.min.mjs';
 

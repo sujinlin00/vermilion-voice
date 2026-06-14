@@ -158,12 +158,12 @@ funasr decode (argmax+token)  →  JS 直接移植（POC 验证通过）
 
 ## 五、模型规格（POC 实测）
 
-| 模型                  | 格式        | 大小          | WebGPU 加载 | WebGPU 推理      | 输入 Shape                      | 输出 Shape                     |
-| ------------------- | --------- | ----------- | --------- | -------------- | ----------------------------- | ---------------------------- |
-| VAD FSMN            | ONNX INT8 | 0.5 MB      | 0.79 s    | 1795 ms (98帧)   | speech [1,T,400] + 4×cache [1,128,19,1] | logits [1,T,248] + 4×cache    |
-| ASR Paraformer      | ONNX INT8 | 227 MB      | 3.52 s    | 5729 ms (93帧)   | speech [1,T,560], speech_lengths [1] | logits [1,N,8404], token_num [1] |
-| PUNC CT-Transformer | ONNX INT8 | 270 MB      | 1.72 s    | —              | inputs, text_lengths           | logits                        |
-| **总计**              |           | **~497 MB** | **~6 s**   | —              |                               |                              |
+| 模型                  | 格式        | 大小          | WebGPU 加载 | WebGPU 推理     | 输入 Shape                                | 输出 Shape                         |
+| ------------------- | --------- | ----------- | --------- | ------------- | --------------------------------------- | -------------------------------- |
+| VAD FSMN            | ONNX INT8 | 0.5 MB      | 0.79 s    | 1795 ms (98帧) | speech [1,T,400] + 4×cache [1,128,19,1] | logits [1,T,248] + 4×cache       |
+| ASR Paraformer      | ONNX INT8 | 227 MB      | 3.52 s    | 5729 ms (93帧) | speech [1,T,560], speech_lengths [1]    | logits [1,N,8404], token_num [1] |
+| PUNC CT-Transformer | ONNX INT8 | 270 MB      | 1.72 s    | —             | inputs, text_lengths                    | logits                           |
+| **总计**              |           | **~497 MB** | **~6 s**  | —             |                                         |                                  |
 
 > 以上数据来自 POC，测试环境：Chrome + WebGPU，模型为 `model_quant.onnx`（INT8 量化）。首次加载后浏览器会缓存模型文件。
 
@@ -171,10 +171,10 @@ funasr decode (argmax+token)  →  JS 直接移植（POC 验证通过）
 
 POC 验证过程中发现一个重要细节：FunASR 导出的 ONNX 模型中，前端特征提取（fbank + LFR + CMVN）**不在模型内部**。模型输入是已经过处理的声学特征，而非原始 PCM 音频：
 
-| 模型   | 前置处理                          | 输入维度       | 说明                  |
-| ---- | ----------------------------- | ---------- | ------------------- |
-| VAD  | fbank(80mel) → LFR(m=5,n=1) → CMVN | [1, T, 400]  | 80mel × 5帧 LFR = 400 |
-| ASR  | fbank(80mel) → LFR(m=7,n=6) → CMVN | [1, T, 560] | 80mel × 7帧 LFR = 560 |
+| 模型  | 前置处理                               | 输入维度        | 说明                   |
+| --- | ---------------------------------- | ----------- | -------------------- |
+| VAD | fbank(80mel) → LFR(m=5,n=1) → CMVN | [1, T, 400] | 80mel × 5帧 LFR = 400 |
+| ASR | fbank(80mel) → LFR(m=7,n=6) → CMVN | [1, T, 560] | 80mel × 7帧 LFR = 560 |
 
 这意味着 JS 端必须实现完整的 fbank + LFR + CMVN 特征提取管线，这是 POC 阶段未预料到的额外工作量。
 
@@ -184,12 +184,12 @@ POC 验证过程中发现一个重要细节：FunASR 导出的 ONNX 模型中，
 
 所需的 4 个模块工作量可控：
 
-| 模块          | 复杂度 | 估计代码量 | JS 实现方式                            |
-| ----------- | --- | ----- | ---------------------------------- |
-| 分帧 + 汉明窗    | 低   | ~30 行 | 纯数组操作，无外部依赖                        |
-| FFT → 功率谱   | 中   | ~50 行 | 自研 Radix-2 FFT 或引入 kissfft（单文件 C 移植） |
-| Mel 滤波器组    | 低   | ~50 行 | 预计算三角形滤波器矩阵 + MatMul                |
-| LFR + CMVN  | 低   | ~30 行 | 纯数组拼接 + am.mvn 参数加载                  |
+| 模块         | 复杂度 | 估计代码量 | JS 实现方式                              |
+| ---------- | --- | ----- | ------------------------------------ |
+| 分帧 + 汉明窗   | 低   | ~30 行 | 纯数组操作，无外部依赖                          |
+| FFT → 功率谱  | 中   | ~50 行 | 自研 Radix-2 FFT 或引入 kissfft（单文件 C 移植） |
+| Mel 滤波器组   | 低   | ~50 行 | 预计算三角形滤波器矩阵 + MatMul                 |
+| LFR + CMVN | 低   | ~30 行 | 纯数组拼接 + am.mvn 参数加载                  |
 
 **性能兜底：WASM 编译（仅在 JS 性能不足时启用）**
 
@@ -211,17 +211,18 @@ kissfft.c + fbank_impl.c → emcc → fbank.wasm (~50KB)
 
 ## 六、开发阶段建议（POC 后更新）
 
-| 阶段          | 内容                              | 验证标准         | 状态       |
-| ----------- | ------------------------------- | ------------ | -------- |
-| **POC**     | ORT Web 加载 3 个 ONNX 模型，推理验证        | 浏览器控制台输出正确文本 | **已完成** ✓ |
-| **POC-2**   | JS fbank + LFR + CMVN 前端特征提取       | 与 Python 输出匹配  | **已完成** ✓ |
-| **POC-3**   | 流式 VAD + cache 管理 + 状态机后处理       | 流式特征帧数匹配 + VAD 状态机正确 | **已完成** ✓ |
-| **MVP-1**   | 麦克风采集 + JS 前端 + VAD + ASR + PUNC 流水线 | 实时转写，延迟 < 3s | **已完成** ✓ |
-| **MVP-2**   | Obsidian 插件骨架 + 设置面板 + 模型管理 | 插件内完成识别       | **下一阶段** |
-| **Beta**    | 热词、录音保存、性能优化、错误恢复           | 功能完整         | 待进行      |
-| **Release** | 模型下载、打包发布、社区插件审核              | 可发布到社区       | 待进行      |
+| 阶段          | 内容                                   | 验证标准                 | 状态        |
+| ----------- | ------------------------------------ | -------------------- | --------- |
+| **POC**     | ORT Web 加载 3 个 ONNX 模型，推理验证          | 浏览器控制台输出正确文本         | **已完成** ✓ |
+| **POC-2**   | JS fbank + LFR + CMVN 前端特征提取         | 与 Python 输出匹配        | **已完成** ✓ |
+| **POC-3**   | 流式 VAD + cache 管理 + 状态机后处理           | 流式特征帧数匹配 + VAD 状态机正确 | **已完成** ✓ |
+| **MVP-1**   | 麦克风采集 + JS 前端 + VAD + ASR + PUNC 流水线 | 实时转写，延迟 < 3s         | **已完成** ✓ |
+| **MVP-2**   | Obsidian 插件骨架 + 设置面板 + 模型管理          | 插件内完成识别              | **下一阶段**  |
+| **Beta**    | 热词、录音保存、性能优化、错误恢复                    | 功能完整                 | 待进行       |
+| **Release** | 模型下载、打包发布、社区插件审核                     | 可发布到社区               | 待进行       |
 
 POC 阶段新增了 **POC-2** 和 **POC-3** 子阶段：
+
 - POC-2：发现 ONNX 模型需要外部 fbank + LFR + CMVN 特征提取，实现纯 JS 版本
 - POC-3：实现流式 fbank + online LFR + VAD ONNX 推理（4×FSMN cache tensors）+ VAD 状态机后处理
 
@@ -236,6 +237,7 @@ POC 阶段新增了 **POC-2** 和 **POC-3** 子阶段：
 - **前端特征**：fbank + online LFR + CMVN（VAD lfr=5/1 400dim，ASR lfr=7/6 560dim）
 
 **关键发现：**
+
 1. WebGPU ASR 推理有不稳定崩溃（`reading 'fc'` null pointer），用独立 WASM session 绕过
 2. VAD WebGPU 推理稳定，无需回退
 3. 首次 fbank 帧可能含 `-Infinity`（CMVN 初始化不足），需 clip 裁剪
@@ -245,26 +247,26 @@ POC 阶段新增了 **POC-2** 和 **POC-3** 子阶段：
 
 ## 七、风险与未决项（POC 后更新）
 
-| 风险                        | 状态       | 影响     | 缓解                                    |
-| ------------------------- | -------- | ------ | ------------------------------------- |
-| ~~ORT Web 对 Paraformer 算子支持~~ | **已验证通过** | — | 三个模型 WebGPU 推理无算子兼容问题                   |
-| ~~WebGPU 在浏览器中的稳定性~~       | **部分验证** | — | VAD WebGPU 稳定；ASR WebGPU 有不稳定崩溃（`reading 'fc'`），通过独立 WASM session 绕过 |
-| ~~JS 端 fbank + LFR + CMVN~~   | **已完成** | — | 纯 JS 实现，95.5% 帧在 0.5 nat 内匹配 Python 参考 |
-| ~~VAD 流式推理的 cache 管理~~         | **已验证通过** | — | JS 端正确管理 4×[1,128,19,1] FSMN cache tensors 的 streaming 生命周期 |
-| WebGPU 在 Electron 中的稳定性   | **部分验证** | ASR 推理可能需 WASM | Chrome 浏览器中 ASR WebGPU 有不稳定崩溃，Electron 中可能类似，WASM 已验证稳定 |
-| ~~228MB 模型在浏览器内存中~~           | **已验证通过** | — | INT8 量化 + WASM session，内存压力可接受 |
-| fbank 首帧 -Infinity          | **已缓解** | ASR 崩溃 | clipFeat() 裁剪极值到 [-50, 50] |
-| AudioWorklet 降采样质量        | 待改进     | 识别精度 | 当前用最近邻抽取（无抗混叠滤波），后续可加线性插值 |
-| AudioWorklet 兼容性          | 未验证     | 音频采集失败 | 降级到 ScriptProcessorNode               |
+| 风险                            | 状态        | 影响             | 缓解                                                                   |
+| ----------------------------- | --------- | -------------- | -------------------------------------------------------------------- |
+| ~~ORT Web 对 Paraformer 算子支持~~ | **已验证通过** | —              | 三个模型 WebGPU 推理无算子兼容问题                                                |
+| ~~WebGPU 在浏览器中的稳定性~~          | **部分验证**  | —              | VAD WebGPU 稳定；ASR WebGPU 有不稳定崩溃（`reading 'fc'`），通过独立 WASM session 绕过 |
+| ~~JS 端 fbank + LFR + CMVN~~   | **已完成**   | —              | 纯 JS 实现，95.5% 帧在 0.5 nat 内匹配 Python 参考                               |
+| ~~VAD 流式推理的 cache 管理~~        | **已验证通过** | —              | JS 端正确管理 4×[1,128,19,1] FSMN cache tensors 的 streaming 生命周期          |
+| WebGPU 在 Electron 中的稳定性       | **部分验证**  | ASR 推理可能需 WASM | Chrome 浏览器中 ASR WebGPU 有不稳定崩溃，Electron 中可能类似，WASM 已验证稳定              |
+| ~~228MB 模型在浏览器内存中~~           | **已验证通过** | —              | INT8 量化 + WASM session，内存压力可接受                                       |
+| fbank 首帧 -Infinity            | **已缓解**   | ASR 崩溃         | clipFeat() 裁剪极值到 [-50, 50]                                           |
+| AudioWorklet 降采样质量            | 待改进       | 识别精度           | 当前用最近邻抽取（无抗混叠滤波），后续可加线性插值                                            |
+| AudioWorklet 兼容性              | 未验证       | 音频采集失败         | 降级到 ScriptProcessorNode                                              |
 
 ---
 
 ## 八、现有参考项目
 
-| 项目 | 说明 | 与 Voice-Solo 的关系 |
-|------|------|---------------------|
-| [xenova/whisper-web](https://github.com/xenova/whisper-web) ★3324 | Whisper ONNX + ORT Web + WebGPU，浏览器端实时语音识别 | 架构最接近（Web Worker + 模型推理 + 实时音频流），但不含 VAD/PUNC 流水线 |
-| [microsoft/onnxruntime-inference-examples](https://github.com/microsoft/onnxruntime-inference-examples) ★1653 | ORT 官方示例，含 Web 浏览器用法 | ORT Web 集成参考（Webpack/Vite/纯 HTML） |
-| [Whisper WebGPU Tutorial](https://dev.to/proflead/real-time-audio-to-text-in-your-browser-whisper-webgpu-tutorial-j6d) | AudioContext → Worker → ORT WebGPU 端到端教程 | AudioWorklet + Worker 通信模式可直接复用 |
+| 项目                                                                                                                     | 说明                                         | 与 Voice-Solo 的关系                                  |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------- |
+| [xenova/whisper-web](https://github.com/xenova/whisper-web) ★3324                                                      | Whisper ONNX + ORT Web + WebGPU，浏览器端实时语音识别 | 架构最接近（Web Worker + 模型推理 + 实时音频流），但不含 VAD/PUNC 流水线 |
+| [microsoft/onnxruntime-inference-examples](https://github.com/microsoft/onnxruntime-inference-examples) ★1653          | ORT 官方示例，含 Web 浏览器用法                       | ORT Web 集成参考（Webpack/Vite/纯 HTML）                 |
+| [Whisper WebGPU Tutorial](https://dev.to/proflead/real-time-audio-to-text-in-your-browser-whisper-webgpu-tutorial-j6d) | AudioContext → Worker → ORT WebGPU 端到端教程   | AudioWorklet + Worker 通信模式可直接复用                   |
 
 **关键发现：** 社区已有成熟的不依赖 Python 的浏览器端语音识别方案，但都是基于 Whisper 架构。Paraformer + FSMN VAD + CT-Transformer PUNC 的 ONNX 流水线没有已知的开源前端实现。Voice-Solo 是这条路线的第一个。

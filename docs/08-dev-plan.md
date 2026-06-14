@@ -26,27 +26,27 @@
 
 ### 新增文件
 
-| 文件 | 用途 |
-|------|------|
-| `src/worker-vad.ts` | Worker A — VAD 全流水线（fbank + ONNX + 状态机） |
+| 文件                  | 用途                                       |
+| ------------------- | ---------------------------------------- |
+| `src/worker-vad.ts` | Worker A — VAD 全流水线（fbank + ONNX + 状态机）  |
 | `src/worker-asr.ts` | Worker B — ASR + PUNC（fbank + ONNX + 解码） |
-| `src/messages.ts` | 消息类型定义（从 types.ts 拆分，三端共享） |
+| `src/messages.ts`   | 消息类型定义（从 types.ts 拆分，三端共享）               |
 
 ### 修改文件
 
-| 文件 | 变更 |
-|------|------|
-| `main.ts` | 管理 2 个 Worker 实例 + 消息中继 + 启动/停止协调 |
-| `view.ts` | 无变更（消息接口不变） |
-| `types.ts` | 新增 WorkerA→Main、Main→WorkerB 消息类型 |
-| `styles.css` | 无变更 |
-| `text-processor.ts` | 无变更（仍在 main 线程运行） |
+| 文件                   | 变更                                    |
+| -------------------- | ------------------------------------- |
+| `main.ts`            | 管理 2 个 Worker 实例 + 消息中继 + 启动/停止协调     |
+| `view.ts`            | 无变更（消息接口不变）                           |
+| `types.ts`           | 新增 WorkerA→Main、Main→WorkerB 消息类型     |
+| `styles.css`         | 无变更                                   |
+| `text-processor.ts`  | 无变更（仍在 main 线程运行）                     |
 | `esbuild.config.mjs` | 多入口：`worker-vad.ts` + `worker-asr.ts` |
 
 ### 删除文件
 
-| 文件 | 原因 |
-|------|------|
+| 文件              | 原因                                     |
+| --------------- | -------------------------------------- |
 | `src/worker.ts` | 被 `worker-vad.ts` + `worker-asr.ts` 替代 |
 
 ## 实施步骤
@@ -93,6 +93,7 @@ type AsrToMain =
 从 `worker.ts`（~400 行）拆分为两个文件：
 
 **`worker-vad.ts`** — 保留 VAD 相关逻辑：
+
 - fbank 初始化 (lfr_m=5, n=1)
 - VAD ONNX session 管理
 - VAD 状态机（speech/silence 检测 + pre-roll/post-roll）
@@ -100,6 +101,7 @@ type AsrToMain =
 - 接收 chunk、start、stop 消息
 
 **`worker-asr.ts`** — 保留 ASR/PUNC 相关逻辑：
+
 - ASR fbank 初始化 (lfr_m=7, n=6)
 - ASR ONNX session + 预热
 - PUNC ONNX session
@@ -191,20 +193,20 @@ await build({
 
 ## 风险点
 
-| 风险 | 缓解 |
-|------|------|
-| Worker B 处理速度跟不上语音节奏 | pending 队列限长（3 段），丢弃旧段 |
-| 两个 Worker 的 ORT bundle 版本不一致 | 构建时共享同一份 lib |
-| AudioWorklet buffer 在主线程和 Worker A 间多拷贝 | 使用 transfer list，零拷贝传递 |
-| 停止时 pending ASR 未完成 | `stop()` 返回 Promise，等待所有 ASR 完成 |
+| 风险                                      | 缓解                              |
+| --------------------------------------- | ------------------------------- |
+| Worker B 处理速度跟不上语音节奏                    | pending 队列限长（3 段），丢弃旧段          |
+| 两个 Worker 的 ORT bundle 版本不一致            | 构建时共享同一份 lib                    |
+| AudioWorklet buffer 在主线程和 Worker A 间多拷贝 | 使用 transfer list，零拷贝传递          |
+| 停止时 pending ASR 未完成                     | `stop()` 返回 Promise，等待所有 ASR 完成 |
 
 ## 预估总工时
 
-| 步骤 | 工时 |
-|------|------|
-| Step 1: 消息协议 | 0.5h |
-| Step 2: 拆分 Worker | 2h |
-| Step 3: main.ts 重写 | 3h |
-| Step 4: 构建配置 | 0.5h |
-| Step 5: 测试 | 1h |
-| **合计** | **7h** |
+| 步骤                 | 工时     |
+| ------------------ | ------ |
+| Step 1: 消息协议       | 0.5h   |
+| Step 2: 拆分 Worker  | 2h     |
+| Step 3: main.ts 重写 | 3h     |
+| Step 4: 构建配置       | 0.5h   |
+| Step 5: 测试         | 1h     |
+| **合计**             | **7h** |

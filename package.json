@@ -2,7 +2,7 @@
   "name": "vermilion-voice",
   "version": "0.1.1",
   "description": "Local speech recognition in Obsidian — ONNX + WebGPU, no cloud",
-  "main": "main.js",
+  "main": "plugin/main.js",
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs"

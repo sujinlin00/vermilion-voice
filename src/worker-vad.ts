@@ -4,7 +4,7 @@
 // outputs speech segments to main thread for forwarding to Worker B.
 
 import type { MainToVad, VadToMain } from './types';
-import { StreamingFbankProcessor, loadCMVN } from '../lib/streaming_fbank.js';
+import { StreamingFbankProcessor, loadCMVN } from './streaming_fbank.js';
 import * as ort from '../lib/ort.bundle.min.mjs';
 
 // ---- State ----

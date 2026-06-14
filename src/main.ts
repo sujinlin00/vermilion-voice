@@ -231,9 +231,10 @@ const DEFAULT_SETTINGS: VermilionVoiceSettings = {
   modelBasePath: '',
   asrModelTier: 'standard',
   outputToNote: false,
-  outputFolder: 'Transcriptions',
+  outputFolder: '03.语音转写',
   saveAudio: false,
-  recordingFolder: 'Recordings',
+  recordingFolder: '04.录音文件',
+  organizeByMonth: true,
   postProcessEnabled: false,
   audioDevice: '',
   vadSensitivity: 'medium',
@@ -360,11 +361,13 @@ export default class VermilionVoicePlugin extends Plugin {
       if (this.settings.saveAudio) {
         this.addLog('[step] init FLAC encoder...');
         const vaultRoot = (this.app.vault.adapter as any).basePath as string;
-        const dir = vaultRoot + '/' + this.settings.recordingFolder;
-        try { fs.mkdirSync(dir, { recursive: true }); } catch {}
         const now = new Date();
-        const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-        this.recordingPath = dir + '/录音_' + ts + '.flac';
+        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const dir = vaultRoot + '/' + this.settings.recordingFolder;
+        const targetDir = this.settings.organizeByMonth ? `${dir}/${ym}` : dir;
+        try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
+        const ts = `${ym}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+        this.recordingPath = targetDir + '/录音_' + ts + '.flac';
         FlacEncoder.pluginDir = this.pluginDir;
         this.flacEncoder = new FlacEncoder(16000, 4096);
         await this.flacEncoder.open(this.recordingPath, fs);
@@ -836,14 +839,16 @@ export default class VermilionVoicePlugin extends Plugin {
 
   private async ensureOutputFile() {
     const now = new Date();
-    const ds = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const ds = `${ym}-${String(now.getDate()).padStart(2, '0')}`;
     const folder = this.settings.outputFolder || 'Transcriptions';
-    await this.ensureFolder(folder);
-    this.currentNotePath = `${folder}/转录_${ds}.md`;
+    const targetDir = this.settings.organizeByMonth ? `${folder}/${ym}` : folder;
+    await this.ensureFolder(targetDir);
+    this.currentNotePath = `${targetDir}/转写_${ds}.md`;
     try {
       const file = this.app.vault.getAbstractFileByPath(this.currentNotePath);
       if (!file) {
-        await this.app.vault.create(this.currentNotePath, `# 转录 ${ds}\n\n`);
+        await this.app.vault.create(this.currentNotePath, '');
       }
     } catch { /* ignore */ }
   }
@@ -875,9 +880,11 @@ export default class VermilionVoicePlugin extends Plugin {
     if (!this.currentNotePath || !this.pendingPlaceholder || !this.recordingPath) return;
     const file = this.app.vault.getAbstractFileByPath(this.currentNotePath);
     if (!file) return;
-    const folder = this.settings.recordingFolder || 'Recordings';
-    const fname = this.recordingPath.replace(/\\/g, '/').split('/').pop()!;
-    const embed = `![[${folder}/${fname}]]`;
+    // Compute vault-relative path from absolute recording path
+    const vaultRoot = (this.app.vault.adapter as any).basePath as string;
+    const vaultPrefix = vaultRoot.replace(/\\/g, '/').replace(/\/$/, '') + '/';
+    const relPath = this.recordingPath.replace(/\\/g, '/').replace(vaultPrefix, '');
+    const embed = `![[${relPath}]]`;
     const content = await this.app.vault.read(file);
     const replaced = content.replace(this.pendingPlaceholder.trim(), embed);
     await this.app.vault.modify(file, replaced);
@@ -1148,7 +1155,7 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       .setClass('vermilion-voice-setting-indent')
       .addText(text => {
         outputFolderText = text;
-        text.setPlaceholder('Transcriptions');
+        text.setPlaceholder('03.语音转写');
         text.setValue(s.outputFolder);
         text.onChange(async (v) => {
           this.plugin.settings.outputFolder = v;
@@ -1175,7 +1182,7 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
       .setClass('vermilion-voice-setting-indent')
       .addText(text => {
         recordingFolderText = text;
-        text.setPlaceholder('Recordings');
+        text.setPlaceholder('04.录音文件');
         text.setValue(s.recordingFolder);
         text.onChange(async (v) => {
           this.plugin.settings.recordingFolder = v;
@@ -1183,6 +1190,18 @@ class VermilionVoiceSettingTab extends PluginSettingTab {
         });
       });
     this.setDependentDisabled(recordingFolderText, !s.saveAudio);
+
+    new Setting(containerEl)
+      .setName(t('settings.organizeByMonth'))
+      .setDesc(t('settings.organizeByMonth.desc'))
+      .setClass('vermilion-voice-setting-indent')
+      .addToggle(toggle => {
+        toggle.setValue(s.organizeByMonth);
+        toggle.onChange(async (v) => {
+          this.plugin.settings.organizeByMonth = v;
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
       .setName(t('settings.postProcess'))
